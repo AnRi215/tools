@@ -403,8 +403,21 @@ try {
         Render $curPath $items $sel $scroll $depth
         $k=[Console]::ReadKey($true); $ks=$k.Key.ToString()
 
-        if     ($ks -eq "UpArrow")   { if($sel-gt 0){$sel--; if($sel-lt $scroll){$scroll=$sel}} }
-        elseif ($ks -eq "DownArrow") { if($sel-lt($items.Count-1)){$sel++; if($sel-ge($scroll+$listH)){$scroll=$sel-$listH+1}} }
+        if ($ks -eq "UpArrow") {
+            if ($sel -gt 0) { $sel--; if ($sel -lt $scroll) { $scroll = $sel } }
+            # Buffer leeren: alle bereits gepufferten UpArrow-Events auf einmal verarbeiten
+            while ([Console]::KeyAvailable) {
+                if ([Console]::ReadKey($true).Key.ToString() -ne "UpArrow") { break }
+                if ($sel -gt 0) { $sel--; if ($sel -lt $scroll) { $scroll = $sel } }
+            }
+        } elseif ($ks -eq "DownArrow") {
+            if ($sel -lt ($items.Count-1)) { $sel++; if ($sel -ge ($scroll+$listH)) { $scroll=$sel-$listH+1 } }
+            # Buffer leeren: alle bereits gepufferten DownArrow-Events auf einmal verarbeiten
+            while ([Console]::KeyAvailable) {
+                if ([Console]::ReadKey($true).Key.ToString() -ne "DownArrow") { break }
+                if ($sel -lt ($items.Count-1)) { $sel++; if ($sel -ge ($scroll+$listH)) { $scroll=$sel-$listH+1 } }
+            }
+        }
         elseif ($ks -eq "Home")      { $sel=0; $scroll=0 }
         elseif ($ks -eq "End")       { $sel=[math]::Max(0,$items.Count-1); $scroll=[math]::Max(0,$sel-$listH+1) }
         elseif ($ks -eq "Enter" -or $ks -eq "RightArrow") {
