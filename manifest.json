@@ -1,0 +1,26 @@
+[
+  {
+    "name":        "ip",
+    "description": "Interne und externe IP-Adressen mit Netzwerkinfos",
+    "shell":       "PowerShell 5.1+",
+    "usage":       "irm \"https://tools.anri.sh/ip\" | iex"
+  },
+  {
+    "name":        "storage",
+    "description": "ncdu-style interaktiver Speicherplatz-Browser",
+    "shell":       "PowerShell 5.1+",
+    "usage":       "irm \"https://tools.anri.sh/storage\" | iex"
+  },
+  {
+    "name":        "eset",
+    "description": "ESET Konnektivitaetstest aller ESET-Endpunkte (KB332)",
+    "shell":       "PowerShell 5.1+",
+    "usage":       "irm \"https://tools.anri.sh/eset\" | iex"
+  },
+  {
+    "name":        "help",
+    "description": "Zeigt alle verfuegbaren Tools und deren Verwendung",
+    "shell":       "PowerShell 5.1+",
+    "usage":       "irm \"https://tools.anri.sh/help\" | iex"
+  }
+]
