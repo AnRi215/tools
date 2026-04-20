@@ -216,6 +216,6 @@ Write-Host ""
 Write-Sep
 Write-Host ("    " + (Get-Date -Format "dd.MM.yyyy  HH:mm:ss")) -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
+Write-Host "  Vielen Dank für die Nutzung!" -ForegroundColor Green
 Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
 Write-Host ""
