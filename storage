@@ -38,11 +38,19 @@ function Trunc([string]$s, [int]$n) {
     return $s.Substring(0, $n - 1) + ">"
 }
  
-# Setzt BG auf Black VOR Clear() – verhindert Farb-Inversion
+# BG auf Black VOR Clear() – verhindert Farb-Inversion
 function Clear-Console {
     [Console]::BackgroundColor = "Black"
     [Console]::ForegroundColor = "Gray"
     [Console]::Clear()
+}
+ 
+function Write-Footer {
+    Write-Host ""
+    Write-Host "  --------------------------------------------------" -ForegroundColor Green
+    Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
+    Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
+    Write-Host ""
 }
  
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -56,26 +64,26 @@ function Show-ScanProgress([string]$Root, [string]$CurrentItem, [int]$Done, [int
     $pct  = if ($Total -gt 0) { [int](($Done / $Total) * 100) } else { 0 }
     $fil  = [int]($bW * $pct / 100)
  
-    # Inhalt: 8 Zeilen; vertikal zentriert (minus 1 für Titelzeile oben)
+    # Inhalt: 8 Zeilen; vertikal zentriert (minus 1 fuer Titelzeile)
     $contentH = 8
-    $y = [math]::Max(2, 1 + [int](($H - 1 - $contentH) / 2))
+    $y    = [math]::Max(2, 1 + [int](($H - 1 - $contentH) / 2))
  
-    # Horizontal: Balken als Referenzbreite zentrieren
-    $blockW = $bW + 8   # "[" bar "] 100%"
+    # Horizontal zentriert anhand der Balkenbreite
+    $blockW = $bW + 8
     $xOff   = [math]::Max(2, [int](($W - $blockW) / 2))
-    $textW  = $W - $xOff - 2   # max. Breite für Pfad/Item-Text
+    $textW  = $W - $xOff - 2
  
-    # ── BG VOR Clear() setzen – verhindert Farb-Inversion! ──────────────────
+    # BG VOR Clear() setzen!
     Clear-Console
  
-    # Titel (oben, volle Breite)
+    # Titel
     [Console]::SetCursorPosition(0, 0)
     [Console]::BackgroundColor = "DarkCyan"
     [Console]::ForegroundColor = "White"
-    Write-Host ("  ncdu.ps1  ~  Scanne ...").PadRight($W).Substring(0, $W) -NoNewline
+    Write-Host ("  ncdu for windows  ~  Scanne ...").PadRight($W).Substring(0, $W) -NoNewline
     [Console]::BackgroundColor = "Black"
  
-    # Verzeichnis-Label + Pfad
+    # Verzeichnis
     [Console]::SetCursorPosition($xOff, $y)
     [Console]::ForegroundColor = "DarkGray"
     Write-Host "Verzeichnis:"
@@ -132,27 +140,6 @@ function Load-Dir([string]$Path) {
 }
  
 # ═══════════════════════════════════════════════════════════════════════════════
-#  BOX-HELPER  (konsistente Breite für alle Overlays)
-# ═══════════════════════════════════════════════════════════════════════════════
- 
-# Zeichnet eine Zeile: "| " + content(innerW) + " |"
-# selected: "|>" statt "| " als Präfix
-function Write-BoxRow([int]$x, [int]$y, [int]$innerW, [string]$content, [bool]$isSelected) {
-    [Console]::SetCursorPosition($x, $y)
-    $padded = $content.PadRight($innerW).Substring(0, $innerW)
-    if ($isSelected) {
-        Write-Host "|" -NoNewline
-        [Console]::BackgroundColor = "DarkCyan"; [Console]::ForegroundColor = "White"
-        Write-Host ("> " + $padded) -NoNewline
-        # restore box color
-        [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "White"
-        Write-Host "|" -NoNewline
-    } else {
-        Write-Host ("| " + $padded + " |") -NoNewline
-    }
-}
- 
-# ═══════════════════════════════════════════════════════════════════════════════
 #  OVERLAYS
 # ═══════════════════════════════════════════════════════════════════════════════
  
@@ -163,71 +150,71 @@ function Show-ContextMenu([psobject]$Item) {
     $actions = @("rename", "delete", $null)
     $sel     = 0
     $bW      = 32
-    $innerW  = $bW - 4     # Inhalt zwischen "| " und " |"
+    $innerW  = $bW - 4
     $cx      = [int](($W - $bW) / 2)
-    $rows    = $labels.Count + 4   # top + name + size + sep + labels + bottom
-    $cy      = [int](($H - $rows) / 2)
+    $cy      = [int](($H - ($labels.Count + 5)) / 2)
  
     while ($true) {
         [Console]::BackgroundColor = "DarkGray"
         [Console]::ForegroundColor = "White"
  
-        # Oberer Rand
         [Console]::SetCursorPosition($cx, $cy)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
  
-        # Name
         $nm = if ($Item.Name.Length -gt $innerW) { $Item.Name.Substring(0, $innerW - 3) + "..." } else { $Item.Name }
         [Console]::SetCursorPosition($cx, $cy + 1)
         Write-Host ("| " + $nm.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
  
-        # Größe + Typ
         $meta = (Format-Bytes $Item.Size) + "  " + $(if ($Item.IsDir) { "Ordner" } else { "Datei" })
         [Console]::SetCursorPosition($cx, $cy + 2)
         Write-Host ("| " + $meta.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
  
-        # Trennlinie
         [Console]::SetCursorPosition($cx, $cy + 3)
         Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
  
-        # Optionen
         for ($i = 0; $i -lt $labels.Count; $i++) {
-            Write-BoxRow $cx ($cy + 4 + $i) $innerW $labels[$i] ($i -eq $sel)
+            [Console]::SetCursorPosition($cx, $cy + 4 + $i)
+            if ($i -eq $sel) {
+                [Console]::BackgroundColor = "DarkCyan"
+                Write-Host ("|> " + $labels[$i].PadRight($bW - 4).Substring(0, $bW - 4) + " |") -NoNewline
+            } else {
+                [Console]::BackgroundColor = "DarkGray"
+                Write-Host ("|  " + $labels[$i].PadRight($bW - 4).Substring(0, $bW - 4) + " |") -NoNewline
+            }
         }
  
-        # Unterer Rand
-        [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "White"
+        [Console]::BackgroundColor = "DarkGray"
         [Console]::SetCursorPosition($cx, $cy + 4 + $labels.Count)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
  
         $k  = [Console]::ReadKey($true)
         $ks = $k.Key.ToString()
-        if     ($ks -eq "UpArrow")                                          { if ($sel -gt 0) { $sel-- } }
-        elseif ($ks -eq "DownArrow")                                        { if ($sel -lt ($labels.Count - 1)) { $sel++ } }
-        elseif ($ks -eq "Enter")                                            { return $actions[$sel] }
-        elseif ($ks -eq "Escape" -or $ks -eq "Spacebar" -or $ks -eq "Q")   { return $null }
+        if     ($ks -eq "UpArrow")                                        { if ($sel -gt 0) { $sel-- } }
+        elseif ($ks -eq "DownArrow")                                      { if ($sel -lt ($labels.Count - 1)) { $sel++ } }
+        elseif ($ks -eq "Enter")                                          { return $actions[$sel] }
+        elseif ($ks -eq "Escape" -or $ks -eq "Spacebar" -or $ks -eq "Q") { return $null }
     }
 }
  
 function Show-RenamePrompt([string]$CurrentName) {
     $W      = [math]::Max(40, [Console]::WindowWidth)
     $H      = [math]::Max(10, [Console]::WindowHeight)
-    $bW     = [math]::Min(56, $W - 4)
+    $bW     = [math]::Min(60, $W - 4)
     $innerW = $bW - 4
     $cx     = [int](($W - $bW) / 2)
     $cy     = [int]($H / 2) - 4
     $inp    = $CurrentName
-    $cur    = $inp.Length   # Cursor-Position im String
-    $scrollX = 0            # horizontaler Scroll-Offset
+    $cur    = $inp.Length
+    $scrollX = 0
  
     [Console]::CursorVisible = $true
  
     while ($true) {
-        # Scroll anpassen damit Cursor immer sichtbar ist
+        # Scroll so dass Cursor immer sichtbar
         $vis = $innerW
-        if ($cur -lt $scrollX)           { $scrollX = $cur }
-        if ($cur -ge $scrollX + $vis)    { $scrollX = $cur - $vis + 1 }
-        $disp    = $inp.Substring($scrollX, [math]::Min($vis, [math]::Max(0, $inp.Length - $scrollX)))
+        if ($cur -lt $scrollX)        { $scrollX = $cur }
+        if ($cur -ge $scrollX + $vis) { $scrollX = $cur - $vis + 1 }
+        $disp     = $inp.Substring($scrollX, [math]::Min($vis, [math]::Max(0, $inp.Length - $scrollX)))
         $curInBox = $cur - $scrollX
  
         [Console]::BackgroundColor = "DarkGray"
@@ -235,10 +222,8 @@ function Show-RenamePrompt([string]$CurrentName) {
  
         [Console]::SetCursorPosition($cx, $cy)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
- 
         [Console]::SetCursorPosition($cx, $cy + 1)
         Write-Host ("| " + "Umbenennen".PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
         [Console]::SetCursorPosition($cx, $cy + 2)
         Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
  
@@ -252,17 +237,14 @@ function Show-RenamePrompt([string]$CurrentName) {
         [Console]::ForegroundColor = "White"
         [Console]::SetCursorPosition($cx, $cy + 4)
         Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
- 
         [Console]::SetCursorPosition($cx, $cy + 5)
         [Console]::ForegroundColor = "DarkGray"
-        $hint = " Enter: Bestätigen  ←→ Cursor  Entf: Löschen  Esc: Abbrechen"
+        $hint = " Enter: Bestätigen  ←→ Cursor  Entf: Löschen  Abbrechen: Esc"
         Write-Host ("| " + $hint.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
         [Console]::ForegroundColor = "White"
- 
         [Console]::SetCursorPosition($cx, $cy + 6)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
  
-        # Cursor in Eingabefeld positionieren
         [Console]::SetCursorPosition($cx + 2 + $curInBox, $cy + 3)
  
         $k  = [Console]::ReadKey($true)
@@ -275,15 +257,10 @@ function Show-RenamePrompt([string]$CurrentName) {
         elseif ($ks -eq "Home")        { $cur = 0 }
         elseif ($ks -eq "End")         { $cur = $inp.Length }
         elseif ($ks -eq "Backspace") {
-            if ($cur -gt 0) {
-                $inp = $inp.Substring(0, $cur - 1) + $inp.Substring($cur)
-                $cur--
-            }
+            if ($cur -gt 0) { $inp = $inp.Substring(0, $cur - 1) + $inp.Substring($cur); $cur-- }
         }
         elseif ($ks -eq "Delete") {
-            if ($cur -lt $inp.Length) {
-                $inp = $inp.Substring(0, $cur) + $inp.Substring($cur + 1)
-            }
+            if ($cur -lt $inp.Length) { $inp = $inp.Substring(0, $cur) + $inp.Substring($cur + 1) }
         }
         else {
             $ch = $k.KeyChar
@@ -298,43 +275,54 @@ function Show-RenamePrompt([string]$CurrentName) {
 function Show-DeleteConfirm([psobject]$Item) {
     $W      = [math]::Max(40, [Console]::WindowWidth)
     $H      = [math]::Max(10, [Console]::WindowHeight)
-    $bW     = 44
+    $bW     = 52
     $innerW = $bW - 4
     $cx     = [int](($W - $bW) / 2)
     $cy     = [int]($H / 2) - 5
-    $sel    = 0   # 0=Abbrechen (sicherer Standard), 1=Löschen
+    $sel    = 0   # 0=Abbrechen, 1=Löschen
  
-    # Buttonbeschriftungen und Breiten
-    $btnAbbruch = "  Abbrechen  "    # 13 Zeichen
-    $btnJa      = "  Ja, löschen  "  # 15 Zeichen
+    # Titel dynamisch zentrieren: "!   Löschen bestätigen   !"
+    $titleCore = "Löschen bestätigen"
+    $excl      = "!"
+    $available = $innerW - $titleCore.Length - 2
+    $lp        = [int]($available / 2)
+    $rp        = $available - $lp
+    $titleLine = $excl + (" " * $lp) + $titleCore + (" " * $rp) + $excl
+ 
+    # Button-Texte
+    $btnA = "  Abbrechen   "   # 14 Zeichen
+    $btnJ = "  Ja, löschen  "  # 15 Zeichen
+    $btnGap      = 2
+    $btnTotal    = $btnA.Length + $btnGap + $btnJ.Length  # 31
+    $btnLeftPad  = [int](($innerW - $btnTotal) / 2)
+    $btnRightPad = $innerW - $btnTotal - $btnLeftPad
  
     while ($true) {
-        # Dunkler Hintergrund statt DarkRed
-        [Console]::BackgroundColor = "Black"
-        [Console]::ForegroundColor = "DarkRed"
+        # Orange-Theme: DarkYellow BG, Black text
+        [Console]::BackgroundColor = "DarkYellow"
+        [Console]::ForegroundColor = "Black"
  
         [Console]::SetCursorPosition($cx, $cy)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
  
+        # Titel mit "!" auf beiden Seiten
         [Console]::SetCursorPosition($cx, $cy + 1)
-        [Console]::ForegroundColor = "White"
-        Write-Host ("| " + "! Löschen bestätigen".PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
+        Write-Host ("| " + $titleLine.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
  
         [Console]::SetCursorPosition($cx, $cy + 2)
-        [Console]::ForegroundColor = "DarkRed"
         Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
  
+        # Name
         $nm = if ($Item.Name.Length -gt $innerW) { $Item.Name.Substring(0, $innerW - 3) + "..." } else { $Item.Name }
         [Console]::SetCursorPosition($cx, $cy + 3)
-        [Console]::ForegroundColor = "White"
         Write-Host ("| " + $nm.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
  
+        # Größe + Typ
         $meta = (Format-Bytes $Item.Size) + "  " + $(if ($Item.IsDir) { "Ordner" } else { "Datei" })
         [Console]::SetCursorPosition($cx, $cy + 4)
         Write-Host ("| " + $meta.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
  
         [Console]::SetCursorPosition($cx, $cy + 5)
-        [Console]::ForegroundColor = "DarkRed"
         Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
  
         [Console]::SetCursorPosition($cx, $cy + 6)
@@ -342,41 +330,28 @@ function Show-DeleteConfirm([psobject]$Item) {
         Write-Host ("| " + "Pfeiltasten: Auswählen   Enter: Bestätigen".PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
  
         [Console]::SetCursorPosition($cx, $cy + 7)
-        [Console]::ForegroundColor = "DarkRed"
+        [Console]::ForegroundColor = "Black"
         Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
  
-        # Buttons – exakt berechnet
-        # Layout: "|" + gap + [btnAbbruch] + gap + [btnJa] + gap + "|"
-        # Total inner = bW - 2 = 42
-        $gapBetween = $innerW - $btnAbbruch.Length - $btnJa.Length   # 40 - 13 - 15 = 12 → je 6 padding pro Seite
-        $leftPad    = [int]($gapBetween / 2)
-        $rightPad   = $gapBetween - $leftPad
- 
+        # Buttons
         [Console]::SetCursorPosition($cx, $cy + 8)
-        [Console]::BackgroundColor = "Black"; [Console]::ForegroundColor = "DarkRed"
+        [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
         Write-Host "|" -NoNewline
-        Write-Host (" " * $leftPad) -NoNewline
+        Write-Host (" " * $btnLeftPad) -NoNewline
  
-        if ($sel -eq 0) { [Console]::BackgroundColor = "DarkGreen"; [Console]::ForegroundColor = "White" }
-        else            { [Console]::BackgroundColor = "DarkGray";  [Console]::ForegroundColor = "Gray"  }
-        Write-Host $btnAbbruch -NoNewline
+        if ($sel -eq 0) { [Console]::BackgroundColor = "DarkGreen";  [Console]::ForegroundColor = "White" }
+        else            { [Console]::BackgroundColor = "DarkGray";   [Console]::ForegroundColor = "Gray"  }
+        Write-Host $btnA -NoNewline
  
-        [Console]::BackgroundColor = "Black"; [Console]::ForegroundColor = "DarkRed"
-        Write-Host (" " * $rightPad) -NoNewline
- 
-        # kleiner fixer Separator zwischen Buttons
-        $btnGap = 2
+        [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
         Write-Host (" " * $btnGap) -NoNewline
  
-        if ($sel -eq 1) { [Console]::BackgroundColor = "DarkRed";  [Console]::ForegroundColor = "White" }
-        else            { [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "Gray"  }
-        Write-Host $btnJa -NoNewline
+        if ($sel -eq 1) { [Console]::BackgroundColor = "Red";        [Console]::ForegroundColor = "White" }
+        else            { [Console]::BackgroundColor = "DarkGray";   [Console]::ForegroundColor = "Gray"  }
+        Write-Host $btnJ -NoNewline
  
-        # Restliche Zeichen bis zur rechten Begrenzung
-        $usedInner = $leftPad + $btnAbbruch.Length + $rightPad + $btnGap + $btnJa.Length
-        $remaining = $innerW - $usedInner
-        [Console]::BackgroundColor = "Black"; [Console]::ForegroundColor = "DarkRed"
-        Write-Host ((" " * [math]::Max(0, $remaining)) + "|") -NoNewline
+        [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
+        Write-Host ((" " * [math]::Max(0, $btnRightPad)) + "|") -NoNewline
  
         [Console]::SetCursorPosition($cx, $cy + 9)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
@@ -421,7 +396,7 @@ function Render([string]$CurPath, [array]$Items, [int]$Sel, [int]$Scroll, [int]$
     # Header
     [Console]::BackgroundColor = "DarkCyan"
     [Console]::ForegroundColor = "White"
-    Write-Host ("  ncdu.ps1  ~  [Leertaste] Menü   Enter/→ Öffnen   ← Zurück   Home/End   q Beenden").PadRight($W).Substring(0, $W) -NoNewline
+    Write-Host ("  ncdu for windows  ~  [Leertaste] Menü   Enter/→ Öffnen   ← Zurück   Home/End   q Beenden").PadRight($W).Substring(0, $W) -NoNewline
  
     # Pfadzeile
     [Console]::BackgroundColor = "Black"
@@ -568,5 +543,5 @@ try {
     [Console]::BackgroundColor = $origBg
     [Console]::ForegroundColor = $origFg
     Clear-Console
-    Write-Host "ncdu.ps1 ~ Tschüss!" -ForegroundColor Cyan
+    Write-Footer
 }
