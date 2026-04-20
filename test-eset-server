@@ -80,7 +80,7 @@ $current = 0
 
 foreach ($entry in $tests) {
     $current++
-    Write-Progress -Activity "Teste ESET-Konnektivitaet..." -Status "$($entry.h):$($entry.p)" -PercentComplete (($current / $total) * 100)
+    Write-Progress -Activity "Teste ESET-Konnektivität..." -Status "$($entry.h):$($entry.p)" -PercentComplete (($current / $total) * 100)
     $r = Test-NetConnection -ComputerName $entry.h -Port $entry.p -WarningAction SilentlyContinue
     $results += [PSCustomObject]@{
         Category         = $entry.c
@@ -119,6 +119,6 @@ if ($failed -gt 0) {
 }
 
 Write-Host ""
-Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
+Write-Host "  Vielen Dank für die Nutzung!" -ForegroundColor Green
 Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
 Write-Host ""
