@@ -1,0 +1,225 @@
+param([string]$Root = (Get-Location).Path)
+
+Set-StrictMode -Off
+$ErrorActionPreference = "SilentlyContinue"
+
+# ─── Helpers ────────────────────────────────────────────────────────────────
+
+function Get-DirSize([string]$Path) {
+    try {
+        $sum = (Get-ChildItem $Path -Recurse -Force -EA SilentlyContinue |
+                Where-Object { -not $_.PSIsContainer } |
+                Measure-Object -Property Length -Sum).Sum
+        return [long]($sum ?? 0)
+    } catch { return 0L }
+}
+
+function Format-Bytes([long]$B) {
+    if ($B -ge 1TB) { return "{0,5:F1} TiB" -f ($B / 1TB) }
+    if ($B -ge 1GB) { return "{0,5:F1} GiB" -f ($B / 1GB) }
+    if ($B -ge 1MB) { return "{0,5:F1} MiB" -f ($B / 1MB) }
+    if ($B -ge 1KB) { return "{0,5:F1} KiB" -f ($B / 1KB) }
+    return            "{0,5:F0}   B" -f $B
+}
+
+function Make-Bar([long]$Size, [long]$Max, [int]$Width = 20) {
+    if ($Max -le 0) { return " ".PadRight($Width) }
+    $n = [math]::Min($Width, [int][math]::Round(($Size / $Max) * $Width))
+    return ("#" * $n).PadRight($Width)
+}
+
+function Trunc([string]$s, [int]$n) {
+    if ($n -le 0) { return "" }
+    if ($s.Length -le $n) { return $s.PadRight($n) }
+    return $s.Substring(0, $n - 1) + ">"
+}
+
+# ─── Directory loader ────────────────────────────────────────────────────────
+
+function Load-Dir([string]$Path) {
+    # Show scanning message while working
+    [Console]::BackgroundColor = "Black"
+    [Console]::ForegroundColor = "Black"
+    [Console]::Clear()
+    [Console]::SetCursorPosition(2, 2)
+    [Console]::ForegroundColor = "DarkCyan"
+    Write-Host "  Scanning " -NoNewline
+    [Console]::ForegroundColor = "White"
+    Write-Host $Path
+    [Console]::ForegroundColor = "DarkGray"
+    [Console]::SetCursorPosition(2, 3)
+    Write-Host "  Bitte warten ..."
+
+    $list = [System.Collections.Generic.List[psobject]]::new()
+    try {
+        Get-ChildItem $Path -Directory -Force -EA SilentlyContinue | ForEach-Object {
+            $list.Add([pscustomobject]@{
+                Name  = $_.Name
+                Path  = $_.FullName
+                Size  = (Get-DirSize $_.FullName)
+                IsDir = $true
+            })
+        }
+        Get-ChildItem $Path -File -Force -EA SilentlyContinue | ForEach-Object {
+            $list.Add([pscustomobject]@{
+                Name  = $_.Name
+                Path  = $_.FullName
+                Size  = $_.Length
+                IsDir = $false
+            })
+        }
+    } catch {}
+
+    return @($list | Sort-Object -Property Size -Descending)
+}
+
+# ─── Renderer ────────────────────────────────────────────────────────────────
+
+function Render([string]$CurPath, [array]$Items, [int]$Sel, [int]$Scroll) {
+    $W      = [Console]::WindowWidth
+    $H      = [Console]::WindowHeight
+    $listH  = $H - 3   # header + pathbar + footer
+
+    $barW   = 20
+    $sizeW  = 9    # "123.4 GiB"
+    # Row layout: " " + size(9) + " [" + bar(20) + "] " + prefix(1) = 35 fixed chars
+    $fixedW = 1 + $sizeW + 2 + $barW + 2 + 1
+    $nameW  = [math]::Max(4, $W - $fixedW)
+
+    $maxS   = if ($Items.Count -gt 0) { [long]($Items | Measure-Object Size -Maximum).Maximum } else { 1L }
+    $totS   = if ($Items.Count -gt 0) { [long]($Items | Measure-Object Size -Sum).Sum }    else { 0L }
+
+    [Console]::SetCursorPosition(0, 0)
+
+    # ── Header ──────────────────────────────────────────────────────────────
+    [Console]::BackgroundColor = "DarkCyan"
+    [Console]::ForegroundColor = "White"
+    $hdr = "  ncdu.ps1  ~  ↑↓ Navigate   Enter/→ Open dir   ← Back   Home/End   q Quit"
+    Write-Host $hdr.PadRight($W).Substring(0, $W) -NoNewline
+
+    # ── Path bar ────────────────────────────────────────────────────────────
+    [Console]::BackgroundColor = "Black"
+    [Console]::ForegroundColor = "DarkCyan"
+    [Console]::SetCursorPosition(0, 1)
+    $bar = " $CurPath " + "-" * [math]::Max(0, $W - $CurPath.Length - 3)
+    Write-Host $bar.Substring(0, [math]::Min($bar.Length, $W)).PadRight($W) -NoNewline
+
+    # ── Item list ────────────────────────────────────────────────────────────
+    for ($i = 0; $i -lt $listH; $i++) {
+        [Console]::SetCursorPosition(0, $i + 2)
+        $idx = $i + $Scroll
+
+        if ($idx -ge $Items.Count) {
+            [Console]::BackgroundColor = "Black"
+            [Console]::ForegroundColor = "Black"
+            Write-Host " ".PadRight($W) -NoNewline
+            continue
+        }
+
+        $it     = $Items[$idx]
+        $isSel  = ($idx -eq $Sel)
+        $szStr  = Format-Bytes $it.Size
+        $barStr = Make-Bar $it.Size $maxS $barW
+        $pfx    = if ($it.IsDir) { "/" } else { " " }
+        $name   = Trunc ($pfx + $it.Name) $nameW
+
+        if ($isSel) {
+            [Console]::BackgroundColor = "DarkGreen"
+            [Console]::ForegroundColor = "White"
+            Write-Host " $szStr [$barStr] $name".PadRight($W).Substring(0, $W) -NoNewline
+        } else {
+            [Console]::BackgroundColor = "Black"
+            Write-Host " "        -NoNewline
+            [Console]::ForegroundColor = "Yellow";   Write-Host $szStr   -NoNewline
+            [Console]::ForegroundColor = "DarkGray"; Write-Host " ["     -NoNewline
+            [Console]::ForegroundColor = "Green";    Write-Host $barStr  -NoNewline
+            [Console]::ForegroundColor = "DarkGray"; Write-Host "] "     -NoNewline
+            [Console]::ForegroundColor = "Cyan";     Write-Host $name    -NoNewline
+        }
+    }
+
+    # ── Footer ───────────────────────────────────────────────────────────────
+    [Console]::BackgroundColor = "DarkCyan"
+    [Console]::ForegroundColor = "White"
+    [Console]::SetCursorPosition(0, $H - 1)
+    $selSz   = if ($Items.Count -gt 0) { Format-Bytes $Items[$Sel].Size } else { "  ---  " }
+    $footer  = "  Total: $(Format-Bytes $totS)   Items: $($Items.Count)   Selected: $selSz   Depth: $($stack.Count)"
+    Write-Host $footer.PadRight($W).Substring(0, $W) -NoNewline
+}
+
+# ─── Main loop ───────────────────────────────────────────────────────────────
+
+$origFg = [Console]::ForegroundColor
+$origBg = [Console]::BackgroundColor
+[Console]::CursorVisible  = $false
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# Navigation stack stores: { Path, Items, Sel, Scroll }
+$stack   = [System.Collections.Stack]::new()
+$curPath = $Root
+$items   = Load-Dir $curPath
+$sel     = 0
+$scroll  = 0
+$running = $true
+
+try {
+    while ($running) {
+        $listH = [Console]::WindowHeight - 3
+        Render $curPath $items $sel $scroll
+
+        $k = [Console]::ReadKey($true)
+
+        switch ($k.Key.ToString()) {
+            "UpArrow" {
+                if ($sel -gt 0) {
+                    $sel--
+                    if ($sel -lt $scroll) { $scroll = $sel }
+                }
+            }
+            "DownArrow" {
+                if ($sel -lt $items.Count - 1) {
+                    $sel++
+                    if ($sel -ge $scroll + $listH) { $scroll = $sel - $listH + 1 }
+                }
+            }
+            "Home" { $sel = 0; $scroll = 0 }
+            "End"  {
+                $sel = [math]::Max(0, $items.Count - 1)
+                $scroll = [math]::Max(0, $sel - $listH + 1)
+            }
+            { $_ -in @("Enter", "RightArrow") } {
+                if ($items.Count -gt 0 -and $items[$sel].IsDir) {
+                    # Cache current state on stack so Back is instant
+                    $stack.Push(@{ Path=$curPath; Items=$items; Sel=$sel; Scroll=$scroll })
+                    $curPath = $items[$sel].Path
+                    $items   = Load-Dir $curPath
+                    $sel = 0; $scroll = 0
+                }
+            }
+            "LeftArrow" {
+                if ($stack.Count -gt 0) {
+                    $prev    = $stack.Pop()
+                    $curPath = $prev.Path
+                    $items   = $prev.Items   # restored from cache, instant
+                    $sel     = $prev.Sel
+                    $scroll  = $prev.Scroll
+                } else {
+                    $parent = Split-Path $curPath -Parent
+                    if ($parent -and $parent -ne $curPath -and (Test-Path $parent)) {
+                        $stack.Push(@{ Path=$curPath; Items=$items; Sel=$sel; Scroll=$scroll })
+                        $curPath = $parent
+                        $items   = Load-Dir $curPath
+                        $sel = 0; $scroll = 0
+                    }
+                }
+            }
+            { $_ -in @("Q", "Escape") } { $running = $false }
+        }
+    }
+} finally {
+    [Console]::CursorVisible  = $true
+    [Console]::BackgroundColor = $origBg
+    [Console]::ForegroundColor = $origFg
+    [Console]::Clear()
+    Write-Host "ncdu.ps1 ~ Tschüss!" -ForegroundColor Cyan
+}
