@@ -1,45 +1,28 @@
 $ErrorActionPreference = "SilentlyContinue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
  
-$W = [math]::Max(40, [Console]::WindowWidth)
+# ── Footer ───────────────────────────────────────────────────────────────────
  
-function Write-Sep {
-    Write-Host ("  " + ("-" * [math]::Min(55, $W - 4))) -ForegroundColor DarkGray
-}
- 
-function Write-Section([string]$Title) {
+function Write-Footer {
     Write-Host ""
-    Write-Host "  " -NoNewline
-    Write-Host " $Title " -ForegroundColor Black -BackgroundColor DarkCyan
+    Write-Host "  --------------------------------------------------" -ForegroundColor Green
+    Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
+    Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
+    Write-Host ""
 }
  
-function Write-KV([string]$Key, [string]$Val, [string]$Color = "Cyan") {
-    Write-Host ("    {0,-22}" -f ($Key + ":")) -ForegroundColor DarkGray -NoNewline
-    Write-Host $Val -ForegroundColor $Color
-}
+# ═══════════════════════════════════════════════════════════════════════════════
+#  DATEN SAMMELN (Pass 1)
+# ═══════════════════════════════════════════════════════════════════════════════
  
-# ── Zentrierter Header ───────────────────────────────────────────────────────
- 
-$title   = "Netzwerkinformationen"
-$titlePad = [math]::Max(0, [int](($W - $title.Length - 4) / 2))
- 
-Write-Host ""
-Write-Host (" " * $titlePad) -NoNewline
-Write-Host "  $title  " -ForegroundColor Black -BackgroundColor Cyan
-Write-Sep
- 
-# ── Interne Adressen (gefiltert + gruppiert) ─────────────────────────────────
- 
-# Alle IPv4-Adressen ohne Loopback, ohne APIPA (169.254.x.x) und ohne 0.0.0.0
+# Interfaces klassifizieren
 $rawIPs = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
           Where-Object {
               $_.IPAddress -notmatch "^127\." -and
               $_.IPAddress -notmatch "^169\.254\." -and
               $_.IPAddress -ne "0.0.0.0"
-          } |
-          Sort-Object InterfaceIndex
+          } | Sort-Object InterfaceIndex
  
-# Adapter abrufen und klassifizieren
 $groupPhys   = New-Object System.Collections.Generic.List[psobject]
 $groupVMware = New-Object System.Collections.Generic.List[psobject]
 $groupHyperV = New-Object System.Collections.Generic.List[psobject]
@@ -48,114 +31,186 @@ $groupOther  = New-Object System.Collections.Generic.List[psobject]
 foreach ($ip in $rawIPs) {
     $adp = Get-NetAdapter -InterfaceIndex $ip.InterfaceIndex -ErrorAction SilentlyContinue
     if (-not $adp) { continue }
- 
-    # Bluetooth grundsätzlich überspringen
     $desc = if ($adp.InterfaceDescription) { $adp.InterfaceDescription } else { "" }
     if ($adp.Name -match "Bluetooth" -or $desc -match "Bluetooth") { continue }
  
-    $entry = [pscustomobject]@{
-        Name   = $adp.Name
-        IP     = "$($ip.IPAddress)/$($ip.PrefixLength)"
-        Status = $adp.Status
+    $e = [pscustomobject]@{
+        Name  = $adp.Name
+        IP    = "$($ip.IPAddress)/$($ip.PrefixLength)"
+        RawIP = $ip.IPAddress
     }
  
-    if ($adp.Name -match "VMware|VMnet" -or $desc -match "VMware") {
-        $groupVMware.Add($entry)
-    } elseif ($adp.Name -match "^vEthernet|WSL" -or $desc -match "Hyper-V") {
-        $groupHyperV.Add($entry)
-    } elseif ($adp.InterfaceType -in @(6, 71) -or $adp.Name -match "Ethernet|LAN|WLAN|Wi-Fi|WiFi|VPN|TAP") {
-        $groupPhys.Add($entry)
-    } else {
-        $groupOther.Add($entry)
+    if     ($adp.Name -match "VMware|VMnet" -or $desc -match "VMware")          { $groupVMware.Add($e) }
+    elseif ($adp.Name -match "^vEthernet|WSL" -or $desc -match "Hyper-V")       { $groupHyperV.Add($e) }
+    elseif ($adp.InterfaceType -in @(6, 71) -or $adp.Name -match "Ethernet|LAN|WLAN|Wi-Fi|WiFi|VPN|TAP") { $groupPhys.Add($e) }
+    else                                                                         { $groupOther.Add($e)  }
+}
+ 
+# Gateway + DNS
+$gw = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+      Sort-Object RouteMetric | Select-Object -First 1
+ 
+$dnsServers = @(
+    Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.ServerAddresses -and $_.ServerAddresses.Count -gt 0 } |
+    Select-Object -ExpandProperty ServerAddresses -Unique
+)
+ 
+# Externe IP
+$extIP = $null; $extOrg = $null; $extCity = $null; $extTZ = $null
+try {
+    $r = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 8 -ErrorAction Stop
+    if ($r -and $r.ip) {
+        $extIP   = $r.ip
+        $extOrg  = $r.org
+        $extCity = if ($r.city) { "$($r.city), $($r.region), $($r.country)" } else { $null }
+        $extTZ   = $r.timezone
+    }
+} catch {}
+if (-not $extIP) {
+    try {
+        $r2 = Invoke-WebRequest -Uri "https://api.ipify.org" -TimeoutSec 6 -UseBasicParsing -ErrorAction Stop
+        if ($r2) { $extIP = $r2.Content.Trim() }
+    } catch {}
+}
+ 
+# Primäre interne IP (gleicher /24 wie Gateway)
+$primaryIP = $null
+if ($gw) {
+    $gwNet = ($gw.NextHop -split "\." | Select-Object -First 3) -join "."
+    $allInternal = @($groupPhys) + @($groupHyperV) + @($groupVMware) + @($groupOther)
+    foreach ($e in $allInternal) {
+        $eNet = ($e.RawIP -split "\." | Select-Object -First 3) -join "."
+        if ($eNet -eq $gwNet) { $primaryIP = $e.IP; break }
     }
 }
  
-# Fallback falls Get-NetIPAddress nichts liefert
-if ($groupPhys.Count -eq 0 -and $groupVMware.Count -eq 0 -and $groupHyperV.Count -eq 0 -and $groupOther.Count -eq 0) {
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SPALTENBREITE + SEPARATOR BERECHNEN (Pass 2)
+# ═══════════════════════════════════════════════════════════════════════════════
+ 
+# Alle Keys sammeln
+$allKeys = New-Object System.Collections.Generic.List[string]
+foreach ($g in @($groupPhys, $groupHyperV, $groupVMware, $groupOther)) {
+    foreach ($e in $g) { $allKeys.Add($e.Name) }
+}
+foreach ($k in @("Gateway", "DNS", "IP", "ISP / AS", "Standort", "Zeitzone")) { $allKeys.Add($k) }
+ 
+$maxKeyLen = if ($allKeys.Count -gt 0) { ($allKeys | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum } else { 10 }
+$colW      = $maxKeyLen + 2   # +2 fuer ": "
+ 
+# Alle Values sammeln
+$allVals = New-Object System.Collections.Generic.List[string]
+foreach ($g in @($groupPhys, $groupHyperV, $groupVMware, $groupOther)) {
+    foreach ($e in $g) { $allVals.Add($e.IP) }
+}
+if ($gw)      { $allVals.Add($gw.NextHop) }
+foreach ($d in $dnsServers) { $allVals.Add($d) }
+foreach ($v in @($extIP, $extOrg, $extCity, $extTZ)) { if ($v) { $allVals.Add($v) } }
+ 
+$maxValLen = if ($allVals.Count -gt 0) { ($allVals | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum } else { 20 }
+ 
+# Breite = Einrückung(4) + Schlüssel + Wert + Puffer(2)
+$sepW      = [math]::Max(24, 4 + $colW + $maxValLen + 2)
+$sep       = "-" * $sepW
+$titleText = "Netzwerkinformationen"
+$titlePad  = [math]::Max(0, [int](($sepW - $titleText.Length) / 2))
+ 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  AUSGABE-FUNKTIONEN
+# ═══════════════════════════════════════════════════════════════════════════════
+ 
+function Write-Sep { Write-Host ("  " + $sep) -ForegroundColor DarkGray }
+ 
+function Write-Section([string]$Title, [string]$BgColor = "DarkCyan") {
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " $Title " -ForegroundColor Black -BackgroundColor $BgColor
+}
+ 
+function Write-Row([string]$Key, [string]$Val, [string]$ValColor = "White") {
+    # Schlüssel-Spalte: 4 Leerzeichen Einrückung + Key + ":" + Auffüllung bis colW
+    $label = ("    " + $Key + ":").PadRight(4 + $colW)
+    Write-Host $label -ForegroundColor DarkGray -NoNewline
+    Write-Host $Val   -ForegroundColor $ValColor
+}
+ 
+function Write-RowCont([string]$Val, [string]$ValColor = "White") {
+    Write-Host (" " * (4 + $colW)) -NoNewline
+    Write-Host $Val -ForegroundColor $ValColor
+}
+ 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  AUSGABE (Pass 3)
+# ═══════════════════════════════════════════════════════════════════════════════
+ 
+Write-Host ""
+Write-Sep
+Write-Host ("  " + (" " * $titlePad) + $titleText) -ForegroundColor Cyan
+Write-Sep
+ 
+# ── INTERN ───────────────────────────────────────────────────────────────────
+ 
+$hasInternal = $groupPhys.Count -gt 0 -or $groupHyperV.Count -gt 0 -or $groupVMware.Count -gt 0 -or $groupOther.Count -gt 0
+ 
+if ($hasInternal) {
+    Write-Section "Intern" "DarkYellow"
+ 
+    if ($groupPhys.Count -gt 0) {
+        Write-Section "Physisch / VPN" "DarkCyan"
+        foreach ($e in $groupPhys) {
+            Write-Row $e.Name $e.IP (if ($e.IP -eq $primaryIP) { "Green" } else { "White" })
+        }
+    }
+    if ($groupHyperV.Count -gt 0) {
+        Write-Section "Hyper-V / WSL" "DarkCyan"
+        foreach ($e in $groupHyperV) {
+            Write-Row $e.Name $e.IP (if ($e.IP -eq $primaryIP) { "Green" } else { "White" })
+        }
+    }
+    if ($groupVMware.Count -gt 0) {
+        Write-Section "VMware" "DarkCyan"
+        foreach ($e in $groupVMware) {
+            Write-Row $e.Name $e.IP (if ($e.IP -eq $primaryIP) { "Green" } else { "White" })
+        }
+    }
+    if ($groupOther.Count -gt 0) {
+        Write-Section "Sonstiges" "DarkCyan"
+        foreach ($e in $groupOther) {
+            Write-Row $e.Name $e.IP (if ($e.IP -eq $primaryIP) { "Green" } else { "White" })
+        }
+    }
+} else {
+    Write-Section "Intern" "DarkYellow"
     try {
         $hn  = [System.Net.Dns]::GetHostName()
         $fbs = [System.Net.Dns]::GetHostAddresses($hn) |
                Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }
-        Write-Section "Interne Adressen"
-        foreach ($fb in $fbs) { Write-KV "Adresse" $fb.ToString() "Cyan" }
-    } catch {
-        Write-Section "Interne Adressen"
-        Write-Host "    (keine Adressen gefunden)" -ForegroundColor DarkGray
-    }
-} else {
-    if ($groupPhys.Count -gt 0) {
-        Write-Section "Physisch / VPN"
-        foreach ($e in $groupPhys) {
-            $statusCol = if ($e.Status -eq "Up") { "Cyan" } else { "DarkGray" }
-            Write-KV $e.Name $e.IP $statusCol
-        }
-    }
- 
-    if ($groupHyperV.Count -gt 0) {
-        Write-Section "Hyper-V / WSL"
-        foreach ($e in $groupHyperV) { Write-KV $e.Name $e.IP "DarkCyan" }
-    }
- 
-    if ($groupVMware.Count -gt 0) {
-        Write-Section "VMware"
-        foreach ($e in $groupVMware) { Write-KV $e.Name $e.IP "DarkCyan" }
-    }
- 
-    if ($groupOther.Count -gt 0) {
-        Write-Section "Sonstiges"
-        foreach ($e in $groupOther) { Write-KV $e.Name $e.IP "DarkGray" }
-    }
+        foreach ($fb in $fbs) { Write-Row "Adresse" $fb.ToString() "White" }
+    } catch { Write-Host "    (keine Adressen gefunden)" -ForegroundColor DarkGray }
 }
  
-# ── Routing ──────────────────────────────────────────────────────────────────
+# ── ROUTING ──────────────────────────────────────────────────────────────────
  
-Write-Section "Routing"
- 
-$gw = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
-      Sort-Object RouteMetric | Select-Object -First 1
-if ($gw) { Write-KV "Gateway" $gw.NextHop "DarkYellow" }
- 
-$dnsServers = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-              Where-Object { $_.ServerAddresses -and $_.ServerAddresses.Count -gt 0 } |
-              Select-Object -ExpandProperty ServerAddresses -Unique
- 
-if ($dnsServers) {
-    $first = $true
-    foreach ($dns in $dnsServers) {
-        if ($first) { Write-KV "DNS" $dns "DarkGray"; $first = $false }
-        else        { Write-Host ("    {0,-22}" -f " ") -ForegroundColor DarkGray -NoNewline; Write-Host $dns -ForegroundColor DarkGray }
-    }
+Write-Section "Routing" "DarkCyan"
+if ($gw) { Write-Row "Gateway" $gw.NextHop "White" }
+if ($dnsServers.Count -gt 0) {
+    Write-Row "DNS" $dnsServers[0] "White"
+    for ($i = 1; $i -lt $dnsServers.Count; $i++) { Write-RowCont $dnsServers[$i] "White" }
 }
  
-# ── Externe Adresse ──────────────────────────────────────────────────────────
+# ── EXTERN ───────────────────────────────────────────────────────────────────
  
-Write-Section "Extern"
+Write-Section "Extern" "DarkYellow"
+if ($extIP)   { Write-Row "IP"       $extIP   "Green"   }
+else          { Write-Row "IP"       "(nicht erreichbar)" "DarkRed" }
+if ($extOrg)  { Write-Row "ISP / AS" $extOrg  "White" }
+if ($extCity) { Write-Row "Standort" $extCity "White" }
+if ($extTZ)   { Write-Row "Zeitzone" $extTZ   "White" }
  
-$got = $false
- 
-try {
-    $r = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 8 -ErrorAction Stop
-    if ($r -and $r.ip) {
-        Write-KV "IP"       $r.ip  "Green"
-        if ($r.org)      { Write-KV "ISP / AS"  $r.org                                         "Gray" }
-        if ($r.city)     { Write-KV "Standort"  "$($r.city), $($r.region), $($r.country)"      "Gray" }
-        if ($r.timezone) { Write-KV "Zeitzone"  $r.timezone                                    "DarkGray" }
-        $got = $true
-    }
-} catch {}
- 
-if (-not $got) {
-    try {
-        $r2 = Invoke-WebRequest -Uri "https://api.ipify.org" -TimeoutSec 6 -UseBasicParsing -ErrorAction Stop
-        if ($r2 -and $r2.Content) { Write-KV "IP" $r2.Content.Trim() "Green"; $got = $true }
-    } catch {}
-}
- 
-if (-not $got) { Write-KV "IP" "(kein Internetzugriff)" "DarkRed" }
- 
-# ── Footer ───────────────────────────────────────────────────────────────────
+# ── FOOTER ───────────────────────────────────────────────────────────────────
  
 Write-Host ""
 Write-Sep
 Write-Host ("    " + (Get-Date -Format "dd.MM.yyyy  HH:mm:ss")) -ForegroundColor DarkGray
-Write-Host ""
+Write-Footer
