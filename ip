@@ -1,98 +1,100 @@
 $ErrorActionPreference = "SilentlyContinue"
  
-# ── Hilfsfunktionen ──────────────────────────────────────────────────────────
- 
 function Write-Sep {
     Write-Host ("  " + ("-" * 55)) -ForegroundColor DarkGray
 }
  
-function Write-Title([string]$t) {
+function Write-Section([string]$Title) {
     Write-Host ""
     Write-Host "  " -NoNewline
-    Write-Host " $t " -ForegroundColor Black -BackgroundColor DarkCyan
+    Write-Host " $Title " -ForegroundColor Black -BackgroundColor DarkCyan
 }
  
-function Write-Row([string]$key, [string]$val, [string]$col = "Cyan") {
-    Write-Host ("    {0,-24}" -f ($key + ":")) -ForegroundColor DarkGray -NoNewline
-    Write-Host $val -ForegroundColor $col
+function Write-KV([string]$Key, [string]$Val, [string]$Color = "Cyan") {
+    $label = ("    " + $Key + ":").PadRight(28)
+    Write-Host $label -ForegroundColor DarkGray -NoNewline
+    Write-Host $Val   -ForegroundColor $Color
 }
  
 # ── Header ───────────────────────────────────────────────────────────────────
  
 Write-Host ""
-Write-Host "  myip.ps1 " -ForegroundColor White -NoNewline
+Write-Host "  ip.ps1 " -ForegroundColor White -NoNewline
 Write-Host "~  IP & Netzwerkinfo" -ForegroundColor DarkGray
 Write-Sep
  
 # ── System ───────────────────────────────────────────────────────────────────
  
-Write-Title "System"
-Write-Row "Hostname"  ([System.Net.Dns]::GetHostName())         "White"
-Write-Row "User"      "$env:USERDOMAIN\$env:USERNAME"           "Gray"
+Write-Section "System"
  
-$os = (Get-CimInstance -ClassName Win32_OperatingSystem -EA SilentlyContinue)
-if ($os) { Write-Row "OS" $os.Caption "DarkGray" }
+try { $hn = [System.Net.Dns]::GetHostName() } catch { $hn = $env:COMPUTERNAME }
+Write-KV "Hostname" $hn "White"
+Write-KV "User"     "$env:USERDOMAIN\$env:USERNAME" "Gray"
+ 
+$os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+if ($os) { Write-KV "OS" $os.Caption "DarkGray" }
  
 # ── Interne Adressen ─────────────────────────────────────────────────────────
  
-Write-Title "Interne Adressen"
+Write-Section "Interne Adressen"
  
-$ips = Get-NetIPAddress -AddressFamily IPv4 -EA SilentlyContinue |
+$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
        Where-Object { $_.IPAddress -notmatch "^127\." -and $_.IPAddress -ne "0.0.0.0" } |
        Sort-Object InterfaceIndex
  
 if ($ips) {
     foreach ($ip in $ips) {
-        $adp = Get-NetAdapter -InterfaceIndex $ip.InterfaceIndex -EA SilentlyContinue
-        $lbl = if ($adp) { $adp.Name } else { "Interface $($ip.InterfaceIndex)" }
-        Write-Row $lbl "$($ip.IPAddress)/$($ip.PrefixLength)" "Cyan"
+        $adp = Get-NetAdapter -InterfaceIndex $ip.InterfaceIndex -ErrorAction SilentlyContinue
+        $lbl = if ($adp -and $adp.Name) { $adp.Name } else { "Interface $($ip.InterfaceIndex)" }
+        Write-KV $lbl "$($ip.IPAddress)/$($ip.PrefixLength)" "Cyan"
     }
 } else {
-    # Fallback fuer aeltere PowerShell-Versionen ohne Get-NetIPAddress
-    $fallbackIPs = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
-                   Where-Object { $_.AddressFamily -eq "InterNetwork" }
-    foreach ($fip in $fallbackIPs) {
-        Write-Row "Adresse" $fip.ToString() "Cyan"
-    }
+    # Fallback ohne Get-NetIPAddress
+    $addrs = [System.Net.Dns]::GetHostAddresses($hn) |
+             Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }
+    foreach ($a in $addrs) { Write-KV "Adresse" $a.ToString() "Cyan" }
 }
  
-$gw = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -EA SilentlyContinue |
-       Sort-Object RouteMetric | Select-Object -First 1).NextHop
-if ($gw) { Write-Row "Gateway" $gw "DarkYellow" }
+$gw = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+      Sort-Object RouteMetric | Select-Object -First 1
+if ($gw) { Write-KV "Gateway" $gw.NextHop "DarkYellow" }
  
-$dns = Get-DnsClientServerAddress -AddressFamily IPv4 -EA SilentlyContinue |
-       Where-Object { $_.ServerAddresses.Count -gt 0 } |
-       Select-Object -ExpandProperty ServerAddresses -Unique
-if ($dns) { Write-Row "DNS-Server" ($dns -join ", ") "DarkGray" }
+$dnsAddrs = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.ServerAddresses -and $_.ServerAddresses.Count -gt 0 } |
+            Select-Object -ExpandProperty ServerAddresses -Unique
+if ($dnsAddrs) { Write-KV "DNS-Server" ($dnsAddrs -join ", ") "DarkGray" }
  
 # ── Externe Adresse ──────────────────────────────────────────────────────────
  
-Write-Title "Externe Adresse"
+Write-Section "Externe Adresse"
  
-$extOk = $false
+$got = $false
+ 
+# Versuch 1: ipinfo.io (IP + Standort)
 try {
-    $info = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 8 -UseBasicParsing -EA Stop
-    if ($info -and $info.ip) {
-        Write-Row "IP"        $info.ip                                                    "Green"
-        if ($info.org)      { Write-Row "ISP / AS"  $info.org                            "Gray" }
-        if ($info.city)     { Write-Row "Standort"  "$($info.city), $($info.region), $($info.country)" "Gray" }
-        if ($info.timezone) { Write-Row "Zeitzone"  $info.timezone                       "DarkGray" }
-        $extOk = $true
+    $r = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 8 -ErrorAction Stop
+    if ($r -and $r.ip) {
+        Write-KV "IP"       $r.ip                                      "Green"
+        if ($r.org)      { Write-KV "ISP / AS"  $r.org                "Gray" }
+        if ($r.city)     { Write-KV "Standort"  "$($r.city), $($r.region), $($r.country)" "Gray" }
+        if ($r.timezone) { Write-KV "Zeitzone"  $r.timezone           "DarkGray" }
+        $got = $true
     }
 } catch {}
  
-if (-not $extOk) {
+# Versuch 2: ipify.org (nur IP)
+if (-not $got) {
     try {
-        $ip2 = (Invoke-WebRequest -Uri "https://api.ipify.org" -TimeoutSec 6 -UseBasicParsing -EA Stop).Content.Trim()
-        if ($ip2) {
-            Write-Row "IP" $ip2 "Green"
-            $extOk = $true
+        $r2 = Invoke-WebRequest -Uri "https://api.ipify.org" -TimeoutSec 6 -UseBasicParsing -ErrorAction Stop
+        if ($r2 -and $r2.Content) {
+            Write-KV "IP" $r2.Content.Trim() "Green"
+            $got = $true
         }
     } catch {}
 }
  
-if (-not $extOk) {
-    Write-Row "IP" "(Kein Internetzugriff)" "DarkRed"
+if (-not $got) {
+    Write-KV "IP" "(kein Internetzugriff)" "DarkRed"
 }
  
 # ── Footer ───────────────────────────────────────────────────────────────────
