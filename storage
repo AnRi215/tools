@@ -55,7 +55,7 @@ function Clear-Console {
 
 function Write-Footer {
     Write-Host ""
-    Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
+    Write-Host "  Vielen Dank für die Nutzung!" -ForegroundColor Green
     Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
     Write-Host ""
 }
@@ -135,7 +135,7 @@ function Load-Dir([string]$Path) {
 function Show-ContextMenu([psobject]$Item) {
     $W       = [math]::Max(40, [Console]::WindowWidth)
     $H       = [math]::Max(10, [Console]::WindowHeight)
-    $labels  = @("Umbenennen", "Loeschen", "Abbrechen")
+    $labels  = @("Umbenennen", "Löschen", "Abbrechen")
     $actions = @("rename", "delete", $null)
     $sel     = 0
     $bW      = 32
@@ -255,8 +255,8 @@ function Show-DeleteConfirm([psobject]$Item) {
     $cy     = [int]($H / 2) - 5
     $sel    = 0
 
-    # Titel: "!" zentriert um "Loeschen bestaetigen"
-    $titleCore = "Loeschen bestaetigen"
+    # Titel: "!" zentriert um "Löschen bestätigen"
+    $titleCore = "Löschen bestätigen"
     $available = $innerW - $titleCore.Length - 2
     $lp        = [int]($available / 2)
     $rp        = $available - $lp
@@ -264,7 +264,7 @@ function Show-DeleteConfirm([psobject]$Item) {
 
     # Buttons - Basis: bW-2 (nur die zwei | Raender abziehen)
     $btnA    = "  Abbrechen   "   # 14
-    $btnJ    = "  Ja, loeschen  " # 16
+    $btnJ    = "  Ja, löschen  " # 16
     $btnGap  = 2
     $btnBase = $bW - 2            # 50 = Innenraum zwischen den | Zeichen
     $btnTot  = $btnA.Length + $btnGap + $btnJ.Length  # 32
@@ -291,7 +291,7 @@ function Show-DeleteConfirm([psobject]$Item) {
         Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
         [Console]::SetCursorPosition($cx, $cy+6)
         [Console]::ForegroundColor = "DarkGray"
-        Write-Host ("| " + "Pfeiltasten: Auswaehlen   Enter: Bestaetigen".PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
+        Write-Host ("| " + "Pfeiltasten: Auswählen   Enter: Bestätigen".PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
         [Console]::ForegroundColor = "Black"
         [Console]::SetCursorPosition($cx, $cy+7)
         Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
@@ -349,7 +349,7 @@ function Render([string]$CurPath, [array]$Items, [int]$Sel, [int]$Scroll, [int]$
 
     [Console]::SetCursorPosition(0,0)
     [Console]::BackgroundColor = "DarkCyan"; [Console]::ForegroundColor = "White"
-    Write-Host ("  ncdu for windows  ~  [Leertaste] Menue   Enter/-> Oeffnen   <- Zurueck   Home/End   q Beenden").PadRight($W).Substring(0,$W) -NoNewline
+    Write-Host ("  ncdu for windows  ~  [Leertaste] Menü   Enter/→ Öffnen   ← Zurück   Home/End   q Beenden").PadRight($W).Substring(0,$W) -NoNewline
 
     [Console]::BackgroundColor = "Black"; [Console]::ForegroundColor = "DarkCyan"
     [Console]::SetCursorPosition(0,1)
@@ -384,7 +384,7 @@ function Render([string]$CurPath, [array]$Items, [int]$Sel, [int]$Scroll, [int]$
     [Console]::BackgroundColor="DarkCyan"; [Console]::ForegroundColor="White"
     [Console]::SetCursorPosition(0,$H-1)
     $selSz=if($Items.Count-gt 0){Format-Bytes $Items[$Sel].Size}else{"  ---  "}
-    Write-Host ("  Total: $(Format-Bytes $totS)   Items: $($Items.Count)   Ausgewaehlt: $selSz   Tiefe: $Depth").PadRight($W).Substring(0,$W) -NoNewline
+    Write-Host ("  Total: $(Format-Bytes $totS)   Items: $($Items.Count)   Ausgewählt: $selSz   Tiefe: $Depth").PadRight($W).Substring(0,$W) -NoNewline
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
