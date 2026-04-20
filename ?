@@ -1,0 +1,65 @@
+<#
+.SYNOPSIS
+    Zeigt alle verfuegbaren Tools auf tools.anri.sh
+.NOTES
+    Shell: PowerShell 5.1+
+.USAGE
+    irm "https://tools.anri.sh/help" | iex
+    irm "https://tools.anri.sh/?"    | iex
+#>
+
+$ErrorActionPreference = "SilentlyContinue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+$baseUrl     = "https://tools.anri.sh"
+$manifestUrl = "https://raw.githubusercontent.com/anri215/tools/main/manifest.json"
+
+Write-Host ""
+Write-Host "  tools.anri.sh  ~  Verfuegbare Tools" -ForegroundColor Cyan
+Write-Host ("  " + ("-" * 55)) -ForegroundColor DarkGray
+Write-Host ""
+
+$tools = $null
+try {
+    $tools = Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 8 -ErrorAction Stop
+} catch {
+    Write-Host "  Manifest konnte nicht abgerufen werden." -ForegroundColor DarkRed
+    Write-Host "  Pruefen: $manifestUrl" -ForegroundColor DarkGray
+}
+
+if ($tools) {
+    # Spaltenbreiten berechnen
+    $nameW  = ($tools | ForEach-Object { $_.name.Length }        | Measure-Object -Maximum).Maximum
+    $shellW = ($tools | ForEach-Object { $_.shell.Length }       | Measure-Object -Maximum).Maximum
+    $nameW  = [math]::Max($nameW,  4)
+    $shellW = [math]::Max($shellW, 5)
+
+    # Header
+    $hdrName  = "Name".PadRight($nameW)
+    $hdrShell = "Shell".PadRight($shellW)
+    $hdrDesc  = "Beschreibung"
+    Write-Host ("  " + $hdrName + "   " + $hdrShell + "   " + $hdrDesc) -ForegroundColor DarkGray
+    Write-Host ("  " + ("-" * $nameW) + "   " + ("-" * $shellW) + "   " + ("-" * 40)) -ForegroundColor DarkGray
+
+    # Zeilen
+    foreach ($t in $tools) {
+        $n = $t.name.PadRight($nameW)
+        $s = $t.shell.PadRight($shellW)
+        Write-Host "  " -NoNewline
+        Write-Host $n -ForegroundColor Cyan -NoNewline
+        Write-Host "   " -NoNewline
+        Write-Host $s -ForegroundColor DarkGray -NoNewline
+        Write-Host "   " -NoNewline
+        Write-Host $t.description -ForegroundColor White
+    }
+
+    Write-Host ""
+    Write-Host ("  " + ("-" * 55)) -ForegroundColor DarkGray
+    Write-Host "  Ausfuehren:" -ForegroundColor DarkGray
+    Write-Host ("  irm `"$baseUrl/<name>`" | iex") -ForegroundColor Green
+}
+
+Write-Host ""
+Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
+Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
+Write-Host ""
