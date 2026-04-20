@@ -1,13 +1,22 @@
+<#
+.SYNOPSIS
+    ncdu for windows - Interactive disk usage viewer
+.NOTES
+    Shell: PowerShell 5.1+
+.USAGE
+    irm "https://tools.anri.sh/storage" | iex
+    & ([scriptblock]::Create((irm "https://tools.anri.sh/storage"))) "D:\Data"
+#>
 param([string]$Root = (Get-Location).Path)
- 
+
 Set-StrictMode -Off
 $ErrorActionPreference = "SilentlyContinue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
- 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
- 
+
 function Get-DirSize([string]$Path) {
     try {
         $r = (Get-ChildItem $Path -Recurse -Force -ErrorAction SilentlyContinue |
@@ -17,114 +26,95 @@ function Get-DirSize([string]$Path) {
         return [long]$r
     } catch { return 0L }
 }
- 
+
 function Format-Bytes([long]$B) {
     if ($B -ge 1TB) { return "{0,5:F1} TiB" -f ($B / 1TB) }
     if ($B -ge 1GB) { return "{0,5:F1} GiB" -f ($B / 1GB) }
     if ($B -ge 1MB) { return "{0,5:F1} MiB" -f ($B / 1MB) }
     if ($B -ge 1KB) { return "{0,5:F1} KiB" -f ($B / 1KB) }
-    return            "{0,5:F0}   B" -f $B
+    return "{0,5:F0}   B" -f $B
 }
- 
+
 function Make-Bar([long]$Size, [long]$Max, [int]$Width) {
     if ($Max -le 0) { return (" " * $Width) }
     $n = [math]::Min($Width, [int][math]::Round(($Size / $Max) * $Width))
     return ("#" * $n).PadRight($Width)
 }
- 
+
 function Trunc([string]$s, [int]$n) {
     if ($n -le 0) { return "" }
     if ($s.Length -le $n) { return $s.PadRight($n) }
     return $s.Substring(0, $n - 1) + ">"
 }
- 
-# BG auf Black VOR Clear() – verhindert Farb-Inversion
+
 function Clear-Console {
     [Console]::BackgroundColor = "Black"
     [Console]::ForegroundColor = "Gray"
     [Console]::Clear()
 }
- 
+
 function Write-Footer {
     Write-Host ""
-    Write-Host "  --------------------------------------------------" -ForegroundColor Green
     Write-Host "  Vielen Dank fuer die Nutzung!" -ForegroundColor Green
     Write-Host "  Weitere Informationen auf github.com/anri215/tools" -ForegroundColor Green
     Write-Host ""
 }
- 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SCANNING + PROGRESS BAR
 # ═══════════════════════════════════════════════════════════════════════════════
- 
+
 function Show-ScanProgress([string]$Root, [string]$CurrentItem, [int]$Done, [int]$Total) {
     $W    = [math]::Max(40, [Console]::WindowWidth)
     $H    = [math]::Max(10, [Console]::WindowHeight)
     $bW   = [math]::Min(48, $W - 10)
     $pct  = if ($Total -gt 0) { [int](($Done / $Total) * 100) } else { 0 }
     $fil  = [int]($bW * $pct / 100)
- 
-    # Inhalt: 8 Zeilen; vertikal zentriert (minus 1 fuer Titelzeile)
+
     $contentH = 8
     $y    = [math]::Max(2, 1 + [int](($H - 1 - $contentH) / 2))
- 
-    # Horizontal zentriert anhand der Balkenbreite
     $blockW = $bW + 8
     $xOff   = [math]::Max(2, [int](($W - $blockW) / 2))
     $textW  = $W - $xOff - 2
- 
-    # BG VOR Clear() setzen!
+
     Clear-Console
- 
-    # Titel
+
     [Console]::SetCursorPosition(0, 0)
-    [Console]::BackgroundColor = "DarkCyan"
-    [Console]::ForegroundColor = "White"
+    [Console]::BackgroundColor = "DarkCyan"; [Console]::ForegroundColor = "White"
     Write-Host ("  ncdu for windows  ~  Scanne ...").PadRight($W).Substring(0, $W) -NoNewline
     [Console]::BackgroundColor = "Black"
- 
-    # Verzeichnis
+
     [Console]::SetCursorPosition($xOff, $y)
-    [Console]::ForegroundColor = "DarkGray"
-    Write-Host "Verzeichnis:"
+    [Console]::ForegroundColor = "DarkGray"; Write-Host "Verzeichnis:"
     [Console]::SetCursorPosition($xOff, $y + 1)
     [Console]::ForegroundColor = "White"
     $rd = if ($Root.Length -gt $textW) { "..." + $Root.Substring($Root.Length - ($textW - 3)) } else { $Root }
     Write-Host $rd.PadRight($textW).Substring(0, $textW)
- 
-    # Aktuelles Item
+
     [Console]::SetCursorPosition($xOff, $y + 3)
-    [Console]::ForegroundColor = "DarkGray"
-    Write-Host "Scanne:"
+    [Console]::ForegroundColor = "DarkGray"; Write-Host "Scanne:"
     [Console]::SetCursorPosition($xOff, $y + 4)
     [Console]::ForegroundColor = "Cyan"
     $cd = if ($CurrentItem.Length -gt $textW) { "..." + $CurrentItem.Substring($CurrentItem.Length - ($textW - 3)) } else { $CurrentItem }
     Write-Host $cd.PadRight($textW).Substring(0, $textW)
- 
-    # Fortschrittsbalken
+
     [Console]::SetCursorPosition($xOff, $y + 6)
-    [Console]::ForegroundColor = "DarkGray"
-    Write-Host "[" -NoNewline
-    [Console]::ForegroundColor = "Green"
-    Write-Host ("X" * $fil) -NoNewline
-    [Console]::ForegroundColor = "DarkGray"
-    Write-Host (("." * ($bW - $fil)) + "]  ") -NoNewline
-    [Console]::ForegroundColor = "Yellow"
-    Write-Host "$pct%"
- 
-    # Elementzähler
+    [Console]::ForegroundColor = "DarkGray";  Write-Host "[" -NoNewline
+    [Console]::ForegroundColor = "Green";     Write-Host ("X" * $fil) -NoNewline
+    [Console]::ForegroundColor = "DarkGray";  Write-Host (("." * ($bW - $fil)) + "]  ") -NoNewline
+    [Console]::ForegroundColor = "Yellow";    Write-Host "$pct%"
+
     [Console]::SetCursorPosition($xOff, $y + 7)
-    [Console]::ForegroundColor = "DarkGray"
-    Write-Host "$Done / $Total Elemente"
+    [Console]::ForegroundColor = "DarkGray"; Write-Host "$Done / $Total Elemente"
 }
- 
+
 function Load-Dir([string]$Path) {
     $allDirs  = @(Get-ChildItem $Path -Directory -Force -ErrorAction SilentlyContinue)
     $allFiles = @(Get-ChildItem $Path -File      -Force -ErrorAction SilentlyContinue)
     $total    = $allDirs.Count + $allFiles.Count
     $done     = 0
     $list     = New-Object System.Collections.Generic.List[psobject]
- 
+
     foreach ($d in $allDirs) {
         Show-ScanProgress -Root $Path -CurrentItem $d.FullName -Done $done -Total $total
         $list.Add([pscustomobject]@{ Name=$d.Name; Path=$d.FullName; Size=(Get-DirSize $d.FullName); IsDir=$true })
@@ -135,67 +125,64 @@ function Load-Dir([string]$Path) {
         $list.Add([pscustomobject]@{ Name=$f.Name; Path=$f.FullName; Size=$f.Length; IsDir=$false })
         $done++
     }
- 
     return @($list | Sort-Object -Property Size -Descending)
 }
- 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  OVERLAYS
 # ═══════════════════════════════════════════════════════════════════════════════
- 
+
 function Show-ContextMenu([psobject]$Item) {
     $W       = [math]::Max(40, [Console]::WindowWidth)
     $H       = [math]::Max(10, [Console]::WindowHeight)
-    $labels  = @("Umbenennen", "Löschen", "Abbrechen")
+    $labels  = @("Umbenennen", "Loeschen", "Abbrechen")
     $actions = @("rename", "delete", $null)
     $sel     = 0
     $bW      = 32
-    $innerW  = $bW - 4
+    $innerW  = $bW - 4          # fuer "| "..." |"-Zeilen
+    $labelW  = $bW - 5          # fuer "|> "..." |" bzw. "|  "..." |"-Zeilen (3+content+2=bW => content=bW-5)
     $cx      = [int](($W - $bW) / 2)
     $cy      = [int](($H - ($labels.Count + 5)) / 2)
- 
+
     while ($true) {
-        [Console]::BackgroundColor = "DarkGray"
-        [Console]::ForegroundColor = "White"
- 
+        [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "White"
+
         [Console]::SetCursorPosition($cx, $cy)
         Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
- 
-        $nm = if ($Item.Name.Length -gt $innerW) { $Item.Name.Substring(0, $innerW - 3) + "..." } else { $Item.Name }
-        [Console]::SetCursorPosition($cx, $cy + 1)
+
+        $nm = if ($Item.Name.Length -gt $innerW) { $Item.Name.Substring(0, $innerW-3) + "..." } else { $Item.Name }
+        [Console]::SetCursorPosition($cx, $cy+1)
         Write-Host ("| " + $nm.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
+
         $meta = (Format-Bytes $Item.Size) + "  " + $(if ($Item.IsDir) { "Ordner" } else { "Datei" })
-        [Console]::SetCursorPosition($cx, $cy + 2)
+        [Console]::SetCursorPosition($cx, $cy+2)
         Write-Host ("| " + $meta.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
-        [Console]::SetCursorPosition($cx, $cy + 3)
-        Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
- 
+
+        [Console]::SetCursorPosition($cx, $cy+3)
+        Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
+
         for ($i = 0; $i -lt $labels.Count; $i++) {
-            [Console]::SetCursorPosition($cx, $cy + 4 + $i)
-            if ($i -eq $sel) {
-                [Console]::BackgroundColor = "DarkCyan"
-                Write-Host ("|> " + $labels[$i].PadRight($bW - 4).Substring(0, $bW - 4) + " |") -NoNewline
-            } else {
-                [Console]::BackgroundColor = "DarkGray"
-                Write-Host ("|  " + $labels[$i].PadRight($bW - 4).Substring(0, $bW - 4) + " |") -NoNewline
-            }
+            [Console]::SetCursorPosition($cx, $cy+4+$i)
+            $indicator = if ($i -eq $sel) { ">" } else { " " }
+            if ($i -eq $sel) { [Console]::BackgroundColor = "DarkCyan" }
+            else             { [Console]::BackgroundColor = "DarkGray" }
+            [Console]::ForegroundColor = "White"
+            # "|" + indicator(1) + " " + label(bW-5) + " |" = 1+1+1+(bW-5)+2 = bW
+            Write-Host ("| " + $indicator + " " + $labels[$i].PadRight($labelW-1).Substring(0, $labelW-1) + " |") -NoNewline
         }
- 
-        [Console]::BackgroundColor = "DarkGray"
-        [Console]::SetCursorPosition($cx, $cy + 4 + $labels.Count)
-        Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
- 
-        $k  = [Console]::ReadKey($true)
-        $ks = $k.Key.ToString()
+
+        [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "White"
+        [Console]::SetCursorPosition($cx, $cy+4+$labels.Count)
+        Write-Host ("+" + ("-" * ($bW-2)) + "+") -NoNewline
+
+        $k  = [Console]::ReadKey($true); $ks = $k.Key.ToString()
         if     ($ks -eq "UpArrow")                                        { if ($sel -gt 0) { $sel-- } }
-        elseif ($ks -eq "DownArrow")                                      { if ($sel -lt ($labels.Count - 1)) { $sel++ } }
+        elseif ($ks -eq "DownArrow")                                      { if ($sel -lt ($labels.Count-1)) { $sel++ } }
         elseif ($ks -eq "Enter")                                          { return $actions[$sel] }
         elseif ($ks -eq "Escape" -or $ks -eq "Spacebar" -or $ks -eq "Q") { return $null }
     }
 }
- 
+
 function Show-RenamePrompt([string]$CurrentName) {
     $W      = [math]::Max(40, [Console]::WindowWidth)
     $H      = [math]::Max(10, [Console]::WindowHeight)
@@ -206,72 +193,59 @@ function Show-RenamePrompt([string]$CurrentName) {
     $inp    = $CurrentName
     $cur    = $inp.Length
     $scrollX = 0
- 
+
     [Console]::CursorVisible = $true
- 
+
     while ($true) {
-        # Scroll so dass Cursor immer sichtbar
         $vis = $innerW
         if ($cur -lt $scrollX)        { $scrollX = $cur }
         if ($cur -ge $scrollX + $vis) { $scrollX = $cur - $vis + 1 }
         $disp     = $inp.Substring($scrollX, [math]::Min($vis, [math]::Max(0, $inp.Length - $scrollX)))
         $curInBox = $cur - $scrollX
- 
-        [Console]::BackgroundColor = "DarkGray"
-        [Console]::ForegroundColor = "White"
- 
+
+        [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "White"
         [Console]::SetCursorPosition($cx, $cy)
-        Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
-        [Console]::SetCursorPosition($cx, $cy + 1)
-        Write-Host ("| " + "Umbenennen".PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
-        [Console]::SetCursorPosition($cx, $cy + 2)
-        Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
- 
-        # Eingabezeile
-        [Console]::SetCursorPosition($cx, $cy + 3)
-        [Console]::BackgroundColor = "Black"
-        [Console]::ForegroundColor = "Cyan"
-        Write-Host ("| " + $disp.PadRight($vis).Substring(0, $vis) + " |") -NoNewline
- 
-        [Console]::BackgroundColor = "DarkGray"
-        [Console]::ForegroundColor = "White"
-        [Console]::SetCursorPosition($cx, $cy + 4)
-        Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
-        [Console]::SetCursorPosition($cx, $cy + 5)
+        Write-Host ("+" + ("-" * ($bW-2)) + "+") -NoNewline
+        [Console]::SetCursorPosition($cx, $cy+1)
+        Write-Host ("| " + "Umbenennen".PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
+        [Console]::SetCursorPosition($cx, $cy+2)
+        Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
+
+        [Console]::SetCursorPosition($cx, $cy+3)
+        [Console]::BackgroundColor = "Black"; [Console]::ForegroundColor = "Cyan"
+        Write-Host ("| " + $disp.PadRight($vis).Substring(0,$vis) + " |") -NoNewline
+
+        [Console]::BackgroundColor = "DarkGray"; [Console]::ForegroundColor = "White"
+        [Console]::SetCursorPosition($cx, $cy+4)
+        Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
+
+        [Console]::SetCursorPosition($cx, $cy+5)
         [Console]::ForegroundColor = "DarkGray"
-        $hint = " Enter: Bestätigen  ←→ Cursor  Entf: Löschen  Abbrechen: Esc"
-        Write-Host ("| " + $hint.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
+        # Kurzform damit kein Abschneiden am Rand
+        $hint = " Enter: OK    Esc: Abbrechen    Pfeiltasten: Cursor"
+        Write-Host ("| " + $hint.PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
         [Console]::ForegroundColor = "White"
-        [Console]::SetCursorPosition($cx, $cy + 6)
-        Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
- 
-        [Console]::SetCursorPosition($cx + 2 + $curInBox, $cy + 3)
- 
-        $k  = [Console]::ReadKey($true)
-        $ks = $k.Key.ToString()
- 
+        [Console]::SetCursorPosition($cx, $cy+6)
+        Write-Host ("+" + ("-" * ($bW-2)) + "+") -NoNewline
+
+        [Console]::SetCursorPosition($cx + 2 + $curInBox, $cy+3)
+
+        $k  = [Console]::ReadKey($true); $ks = $k.Key.ToString()
         if     ($ks -eq "Enter")       { [Console]::CursorVisible = $false; return $inp }
         elseif ($ks -eq "Escape")      { [Console]::CursorVisible = $false; return $null }
         elseif ($ks -eq "LeftArrow")   { if ($cur -gt 0) { $cur-- } }
         elseif ($ks -eq "RightArrow")  { if ($cur -lt $inp.Length) { $cur++ } }
         elseif ($ks -eq "Home")        { $cur = 0 }
         elseif ($ks -eq "End")         { $cur = $inp.Length }
-        elseif ($ks -eq "Backspace") {
-            if ($cur -gt 0) { $inp = $inp.Substring(0, $cur - 1) + $inp.Substring($cur); $cur-- }
-        }
-        elseif ($ks -eq "Delete") {
-            if ($cur -lt $inp.Length) { $inp = $inp.Substring(0, $cur) + $inp.Substring($cur + 1) }
-        }
+        elseif ($ks -eq "Backspace")   { if ($cur -gt 0) { $inp=$inp.Substring(0,$cur-1)+$inp.Substring($cur); $cur-- } }
+        elseif ($ks -eq "Delete")      { if ($cur -lt $inp.Length) { $inp=$inp.Substring(0,$cur)+$inp.Substring($cur+1) } }
         else {
             $ch = $k.KeyChar
-            if ($ch -ne [char]0 -and -not [char]::IsControl($ch)) {
-                $inp = $inp.Substring(0, $cur) + $ch + $inp.Substring($cur)
-                $cur++
-            }
+            if ($ch -ne [char]0 -and -not [char]::IsControl($ch)) { $inp=$inp.Substring(0,$cur)+$ch+$inp.Substring($cur); $cur++ }
         }
     }
 }
- 
+
 function Show-DeleteConfirm([psobject]$Item) {
     $W      = [math]::Max(40, [Console]::WindowWidth)
     $H      = [math]::Max(10, [Console]::WindowHeight)
@@ -279,269 +253,206 @@ function Show-DeleteConfirm([psobject]$Item) {
     $innerW = $bW - 4
     $cx     = [int](($W - $bW) / 2)
     $cy     = [int]($H / 2) - 5
-    $sel    = 0   # 0=Abbrechen, 1=Löschen
- 
-    # Titel dynamisch zentrieren: "!   Löschen bestätigen   !"
-    $titleCore = "Löschen bestätigen"
-    $excl      = "!"
+    $sel    = 0
+
+    # Titel: "!" zentriert um "Loeschen bestaetigen"
+    $titleCore = "Loeschen bestaetigen"
     $available = $innerW - $titleCore.Length - 2
     $lp        = [int]($available / 2)
     $rp        = $available - $lp
-    $titleLine = $excl + (" " * $lp) + $titleCore + (" " * $rp) + $excl
- 
-    # Button-Texte
-    $btnA = "  Abbrechen   "   # 14 Zeichen
-    $btnJ = "  Ja, löschen  "  # 15 Zeichen
-    $btnGap      = 2
-    $btnTotal    = $btnA.Length + $btnGap + $btnJ.Length  # 31
-    $btnLeftPad  = [int](($innerW - $btnTotal) / 2)
-    $btnRightPad = $innerW - $btnTotal - $btnLeftPad
- 
+    $titleLine = "!" + (" " * $lp) + $titleCore + (" " * $rp) + "!"
+
+    # Buttons - Basis: bW-2 (nur die zwei | Raender abziehen)
+    $btnA    = "  Abbrechen   "   # 14
+    $btnJ    = "  Ja, loeschen  " # 16
+    $btnGap  = 2
+    $btnBase = $bW - 2            # 50 = Innenraum zwischen den | Zeichen
+    $btnTot  = $btnA.Length + $btnGap + $btnJ.Length  # 32
+    $btnLP   = [int](($btnBase - $btnTot) / 2)        # 9
+    $btnRP   = $btnBase - $btnTot - $btnLP             # 9
+
     while ($true) {
-        # Orange-Theme: DarkYellow BG, Black text
-        [Console]::BackgroundColor = "DarkYellow"
-        [Console]::ForegroundColor = "Black"
- 
+        [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
+
         [Console]::SetCursorPosition($cx, $cy)
-        Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
- 
-        # Titel mit "!" auf beiden Seiten
-        [Console]::SetCursorPosition($cx, $cy + 1)
-        Write-Host ("| " + $titleLine.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
-        [Console]::SetCursorPosition($cx, $cy + 2)
-        Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
- 
-        # Name
-        $nm = if ($Item.Name.Length -gt $innerW) { $Item.Name.Substring(0, $innerW - 3) + "..." } else { $Item.Name }
-        [Console]::SetCursorPosition($cx, $cy + 3)
-        Write-Host ("| " + $nm.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
-        # Größe + Typ
+        Write-Host ("+" + ("-" * ($bW-2)) + "+") -NoNewline
+        [Console]::SetCursorPosition($cx, $cy+1)
+        Write-Host ("| " + $titleLine.PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
+        [Console]::SetCursorPosition($cx, $cy+2)
+        Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
+
+        $nm = if ($Item.Name.Length -gt $innerW) { $Item.Name.Substring(0,$innerW-3)+"..." } else { $Item.Name }
+        [Console]::SetCursorPosition($cx, $cy+3)
+        Write-Host ("| " + $nm.PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
         $meta = (Format-Bytes $Item.Size) + "  " + $(if ($Item.IsDir) { "Ordner" } else { "Datei" })
-        [Console]::SetCursorPosition($cx, $cy + 4)
-        Write-Host ("| " + $meta.PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
-        [Console]::SetCursorPosition($cx, $cy + 5)
-        Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
- 
-        [Console]::SetCursorPosition($cx, $cy + 6)
+        [Console]::SetCursorPosition($cx, $cy+4)
+        Write-Host ("| " + $meta.PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
+        [Console]::SetCursorPosition($cx, $cy+5)
+        Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
+        [Console]::SetCursorPosition($cx, $cy+6)
         [Console]::ForegroundColor = "DarkGray"
-        Write-Host ("| " + "Pfeiltasten: Auswählen   Enter: Bestätigen".PadRight($innerW).Substring(0, $innerW) + " |") -NoNewline
- 
-        [Console]::SetCursorPosition($cx, $cy + 7)
+        Write-Host ("| " + "Pfeiltasten: Auswaehlen   Enter: Bestaetigen".PadRight($innerW).Substring(0,$innerW) + " |") -NoNewline
         [Console]::ForegroundColor = "Black"
-        Write-Host ("|" + ("-" * ($bW - 2)) + "|") -NoNewline
- 
-        # Buttons
-        [Console]::SetCursorPosition($cx, $cy + 8)
+        [Console]::SetCursorPosition($cx, $cy+7)
+        Write-Host ("|" + ("-" * ($bW-2)) + "|") -NoNewline
+
+        # Buttons (exakt bW Zeichen breit)
+        [Console]::SetCursorPosition($cx, $cy+8)
         [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
         Write-Host "|" -NoNewline
-        Write-Host (" " * $btnLeftPad) -NoNewline
- 
-        if ($sel -eq 0) { [Console]::BackgroundColor = "DarkGreen";  [Console]::ForegroundColor = "White" }
-        else            { [Console]::BackgroundColor = "DarkGray";   [Console]::ForegroundColor = "Gray"  }
+        Write-Host (" " * $btnLP) -NoNewline
+        if ($sel -eq 0) { [Console]::BackgroundColor = "DarkGreen"; [Console]::ForegroundColor = "White" }
+        else            { [Console]::BackgroundColor = "DarkGray";  [Console]::ForegroundColor = "Gray"  }
         Write-Host $btnA -NoNewline
- 
         [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
         Write-Host (" " * $btnGap) -NoNewline
- 
-        if ($sel -eq 1) { [Console]::BackgroundColor = "Red";        [Console]::ForegroundColor = "White" }
-        else            { [Console]::BackgroundColor = "DarkGray";   [Console]::ForegroundColor = "Gray"  }
+        if ($sel -eq 1) { [Console]::BackgroundColor = "Red";       [Console]::ForegroundColor = "White" }
+        else            { [Console]::BackgroundColor = "DarkGray";  [Console]::ForegroundColor = "Gray"  }
         Write-Host $btnJ -NoNewline
- 
         [Console]::BackgroundColor = "DarkYellow"; [Console]::ForegroundColor = "Black"
-        Write-Host ((" " * [math]::Max(0, $btnRightPad)) + "|") -NoNewline
- 
-        [Console]::SetCursorPosition($cx, $cy + 9)
-        Write-Host ("+" + ("-" * ($bW - 2)) + "+") -NoNewline
- 
-        $k  = [Console]::ReadKey($true)
-        $ks = $k.Key.ToString()
-        if     ($ks -eq "LeftArrow" -or $ks -eq "RightArrow") { $sel = 1 - $sel }
+        Write-Host ((" " * [math]::Max(0,$btnRP)) + "|") -NoNewline
+
+        [Console]::SetCursorPosition($cx, $cy+9)
+        Write-Host ("+" + ("-" * ($bW-2)) + "+") -NoNewline
+
+        $k  = [Console]::ReadKey($true); $ks = $k.Key.ToString()
+        if     ($ks -eq "LeftArrow" -or $ks -eq "RightArrow") { $sel = 1-$sel }
         elseif ($ks -eq "Enter")  { return ($sel -eq 1) }
         elseif ($ks -eq "Escape") { return $false }
     }
 }
- 
+
 function Show-Error([string]$Msg) {
     $W  = [math]::Max(40, [Console]::WindowWidth)
     $H  = [math]::Max(10, [Console]::WindowHeight)
-    $mW = [math]::Min(60, $W - 4)
-    $cx = [int](($W - $mW) / 2)
-    [Console]::SetCursorPosition($cx, [int]($H / 2))
-    [Console]::BackgroundColor = "DarkRed"
-    [Console]::ForegroundColor = "White"
-    Write-Host ("  $Msg  ").PadRight($mW).Substring(0, $mW) -NoNewline
+    $mW = [math]::Min(60, $W-4)
+    $cx = [int](($W-$mW)/2)
+    [Console]::SetCursorPosition($cx, [int]($H/2))
+    [Console]::BackgroundColor = "DarkRed"; [Console]::ForegroundColor = "White"
+    Write-Host ("  $Msg  ").PadRight($mW).Substring(0,$mW) -NoNewline
     Start-Sleep -Milliseconds 2000
 }
- 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  RENDERER
 # ═══════════════════════════════════════════════════════════════════════════════
- 
+
 function Render([string]$CurPath, [array]$Items, [int]$Sel, [int]$Scroll, [int]$Depth) {
     $W      = [math]::Max(40, [Console]::WindowWidth)
     $H      = [math]::Max(10, [Console]::WindowHeight)
     $listH  = $H - 3
-    $barW   = 20
-    $sizeW  = 9
-    $fixedW = 1 + $sizeW + 2 + $barW + 2 + 1
-    $nameW  = [math]::Max(4, $W - $fixedW)
-    $maxS   = if ($Items.Count -gt 0) { [long]($Items | Measure-Object -Property Size -Maximum).Maximum } else { 1L }
-    $totS   = if ($Items.Count -gt 0) { [long]($Items | Measure-Object -Property Size -Sum).Sum }    else { 0L }
- 
-    [Console]::SetCursorPosition(0, 0)
- 
-    # Header
-    [Console]::BackgroundColor = "DarkCyan"
-    [Console]::ForegroundColor = "White"
-    Write-Host ("  ncdu for windows  ~  [Leertaste] Menü   Enter/→ Öffnen   ← Zurück   Home/End   q Beenden").PadRight($W).Substring(0, $W) -NoNewline
- 
-    # Pfadzeile
-    [Console]::BackgroundColor = "Black"
-    [Console]::ForegroundColor = "DarkCyan"
-    [Console]::SetCursorPosition(0, 1)
-    $pb = " $CurPath " + ("-" * [math]::Max(0, $W - $CurPath.Length - 3))
-    Write-Host $pb.Substring(0, [math]::Min($pb.Length, $W)).PadRight($W) -NoNewline
- 
-    # Items
-    for ($i = 0; $i -lt $listH; $i++) {
-        [Console]::SetCursorPosition(0, $i + 2)
-        $idx = $i + $Scroll
+    $barW   = 20; $sizeW = 9
+    $fixedW = 1+$sizeW+2+$barW+2+1
+    $nameW  = [math]::Max(4, $W-$fixedW)
+    $maxS   = if ($Items.Count -gt 0) { [long]($Items|Measure-Object -Property Size -Maximum).Maximum } else { 1L }
+    $totS   = if ($Items.Count -gt 0) { [long]($Items|Measure-Object -Property Size -Sum).Sum }    else { 0L }
+
+    [Console]::SetCursorPosition(0,0)
+    [Console]::BackgroundColor = "DarkCyan"; [Console]::ForegroundColor = "White"
+    Write-Host ("  ncdu for windows  ~  [Leertaste] Menue   Enter/-> Oeffnen   <- Zurueck   Home/End   q Beenden").PadRight($W).Substring(0,$W) -NoNewline
+
+    [Console]::BackgroundColor = "Black"; [Console]::ForegroundColor = "DarkCyan"
+    [Console]::SetCursorPosition(0,1)
+    $pb = " $CurPath "+("-"*[math]::Max(0,$W-$CurPath.Length-3))
+    Write-Host $pb.Substring(0,[math]::Min($pb.Length,$W)).PadRight($W) -NoNewline
+
+    for ($i=0; $i -lt $listH; $i++) {
+        [Console]::SetCursorPosition(0,$i+2)
+        $idx=$i+$Scroll
         if ($idx -ge $Items.Count) {
-            [Console]::BackgroundColor = "Black"
-            [Console]::ForegroundColor = "Black"
-            Write-Host (" " * $W) -NoNewline
-            continue
+            [Console]::BackgroundColor="Black"; [Console]::ForegroundColor="Black"
+            Write-Host (" "*$W) -NoNewline; continue
         }
-        $it    = $Items[$idx]
-        $isSel = ($idx -eq $Sel)
-        $sz    = Format-Bytes $it.Size
-        $bar   = Make-Bar $it.Size $maxS $barW
-        $pfx   = if ($it.IsDir) { "/" } else { " " }
-        $nm    = Trunc ($pfx + $it.Name) $nameW
- 
+        $it=$Items[$idx]; $isSel=($idx -eq $Sel)
+        $sz=Format-Bytes $it.Size; $bar=Make-Bar $it.Size $maxS $barW
+        $pfx=if($it.IsDir){"/"}else{" "}; $nm=Trunc ($pfx+$it.Name) $nameW
+
         if ($isSel) {
-            [Console]::BackgroundColor = "DarkGreen"
-            [Console]::ForegroundColor = "White"
-            Write-Host (" $sz [$bar] $nm").PadRight($W).Substring(0, $W) -NoNewline
+            [Console]::BackgroundColor="DarkGreen"; [Console]::ForegroundColor="White"
+            Write-Host (" $sz [$bar] $nm").PadRight($W).Substring(0,$W) -NoNewline
         } else {
-            [Console]::BackgroundColor = "Black"
+            [Console]::BackgroundColor="Black"
             Write-Host " " -NoNewline
-            [Console]::ForegroundColor = "Yellow";   Write-Host $sz   -NoNewline
-            [Console]::ForegroundColor = "DarkGray"; Write-Host " [" -NoNewline
-            [Console]::ForegroundColor = "Green";    Write-Host $bar  -NoNewline
-            [Console]::ForegroundColor = "DarkGray"; Write-Host "] " -NoNewline
-            [Console]::ForegroundColor = "Cyan";     Write-Host $nm   -NoNewline
+            [Console]::ForegroundColor="Yellow";   Write-Host $sz   -NoNewline
+            [Console]::ForegroundColor="DarkGray"; Write-Host " [" -NoNewline
+            [Console]::ForegroundColor="Green";    Write-Host $bar  -NoNewline
+            [Console]::ForegroundColor="DarkGray"; Write-Host "] " -NoNewline
+            [Console]::ForegroundColor="Cyan";     Write-Host $nm   -NoNewline
         }
     }
- 
-    # Footer
-    [Console]::BackgroundColor = "DarkCyan"
-    [Console]::ForegroundColor = "White"
-    [Console]::SetCursorPosition(0, $H - 1)
-    $selSz = if ($Items.Count -gt 0) { Format-Bytes $Items[$Sel].Size } else { "  ---  " }
-    Write-Host ("  Total: $(Format-Bytes $totS)   Items: $($Items.Count)   Ausgewählt: $selSz   Tiefe: $Depth").PadRight($W).Substring(0, $W) -NoNewline
+
+    [Console]::BackgroundColor="DarkCyan"; [Console]::ForegroundColor="White"
+    [Console]::SetCursorPosition(0,$H-1)
+    $selSz=if($Items.Count-gt 0){Format-Bytes $Items[$Sel].Size}else{"  ---  "}
+    Write-Host ("  Total: $(Format-Bytes $totS)   Items: $($Items.Count)   Ausgewaehlt: $selSz   Tiefe: $Depth").PadRight($W).Substring(0,$W) -NoNewline
 }
- 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
- 
-$origFg = [Console]::ForegroundColor
-$origBg = [Console]::BackgroundColor
-[Console]::CursorVisible = $false
- 
-$navStack = New-Object System.Collections.Stack
-$depth    = 0
-$curPath  = $Root
-$items    = Load-Dir $curPath
-$sel      = 0
-$scroll   = 0
-$running  = $true
- 
+
+$origFg=[Console]::ForegroundColor; $origBg=[Console]::BackgroundColor
+[Console]::CursorVisible=$false
+
+$navStack=New-Object System.Collections.Stack; $depth=0
+$curPath=$Root; $items=Load-Dir $curPath; $sel=0; $scroll=0; $running=$true
+
 try {
     while ($running) {
-        $listH = [math]::Max(1, [Console]::WindowHeight - 3)
+        $listH=[math]::Max(1,[Console]::WindowHeight-3)
         Render $curPath $items $sel $scroll $depth
- 
-        $k  = [Console]::ReadKey($true)
-        $ks = $k.Key.ToString()
- 
-        if ($ks -eq "UpArrow") {
-            if ($sel -gt 0) { $sel--; if ($sel -lt $scroll) { $scroll = $sel } }
-        } elseif ($ks -eq "DownArrow") {
-            if ($sel -lt ($items.Count - 1)) { $sel++; if ($sel -ge ($scroll + $listH)) { $scroll = $sel - $listH + 1 } }
-        } elseif ($ks -eq "Home") {
-            $sel = 0; $scroll = 0
-        } elseif ($ks -eq "End") {
-            $sel = [math]::Max(0, $items.Count - 1)
-            $scroll = [math]::Max(0, $sel - $listH + 1)
-        } elseif ($ks -eq "Enter" -or $ks -eq "RightArrow") {
-            if ($items.Count -gt 0 -and $items[$sel].IsDir) {
-                $navStack.Push(@{ Path=$curPath; Items=$items; Sel=$sel; Scroll=$scroll })
-                $depth++
-                $curPath = $items[$sel].Path
-                $items   = Load-Dir $curPath
-                $sel = 0; $scroll = 0
+        $k=[Console]::ReadKey($true); $ks=$k.Key.ToString()
+
+        if     ($ks -eq "UpArrow")   { if($sel-gt 0){$sel--; if($sel-lt $scroll){$scroll=$sel}} }
+        elseif ($ks -eq "DownArrow") { if($sel-lt($items.Count-1)){$sel++; if($sel-ge($scroll+$listH)){$scroll=$sel-$listH+1}} }
+        elseif ($ks -eq "Home")      { $sel=0; $scroll=0 }
+        elseif ($ks -eq "End")       { $sel=[math]::Max(0,$items.Count-1); $scroll=[math]::Max(0,$sel-$listH+1) }
+        elseif ($ks -eq "Enter" -or $ks -eq "RightArrow") {
+            if ($items.Count-gt 0 -and $items[$sel].IsDir) {
+                $navStack.Push(@{Path=$curPath;Items=$items;Sel=$sel;Scroll=$scroll}); $depth++
+                $curPath=$items[$sel].Path; $items=Load-Dir $curPath; $sel=0; $scroll=0
             }
-        } elseif ($ks -eq "LeftArrow") {
-            if ($navStack.Count -gt 0) {
-                $prev = $navStack.Pop(); $depth--
-                $curPath = $prev.Path; $items = $prev.Items; $sel = $prev.Sel; $scroll = $prev.Scroll
+        }
+        elseif ($ks -eq "LeftArrow") {
+            if ($navStack.Count-gt 0) {
+                $p=$navStack.Pop(); $depth--; $curPath=$p.Path; $items=$p.Items; $sel=$p.Sel; $scroll=$p.Scroll
             } else {
-                $parent = Split-Path $curPath -Parent
-                if ($parent -and ($parent -ne $curPath) -and (Test-Path $parent)) {
-                    $navStack.Push(@{ Path=$curPath; Items=$items; Sel=$sel; Scroll=$scroll })
-                    $depth++
-                    $curPath = $parent; $items = Load-Dir $curPath; $sel = 0; $scroll = 0
+                $parent=Split-Path $curPath -Parent
+                if ($parent -and ($parent-ne $curPath) -and (Test-Path $parent)) {
+                    $navStack.Push(@{Path=$curPath;Items=$items;Sel=$sel;Scroll=$scroll}); $depth++
+                    $curPath=$parent; $items=Load-Dir $curPath; $sel=0; $scroll=0
                 }
             }
-        } elseif ($ks -eq "Spacebar") {
-            if ($items.Count -gt 0) {
-                $action = Show-ContextMenu $items[$sel]
-                Clear-Console
- 
+        }
+        elseif ($ks -eq "Spacebar") {
+            if ($items.Count-gt 0) {
+                $action=Show-ContextMenu $items[$sel]; Clear-Console
                 if ($action -eq "rename") {
-                    $newName = Show-RenamePrompt $items[$sel].Name
-                    Clear-Console
-                    if ($newName -and $newName -ne $items[$sel].Name) {
+                    $newName=Show-RenamePrompt $items[$sel].Name; Clear-Console
+                    if ($newName -and $newName-ne $items[$sel].Name) {
                         try {
-                            $newPath = Join-Path (Split-Path $items[$sel].Path -Parent) $newName
-                            Rename-Item -Path $items[$sel].Path -NewName $newPath -Force -ErrorAction Stop
-                            $items = Load-Dir $curPath
-                            $sel   = [math]::Min($sel, [math]::Max(0, $items.Count - 1))
-                        } catch {
-                            Show-Error "Fehler: $($_.Exception.Message)"
-                            Clear-Console
-                        }
+                            Rename-Item -Path $items[$sel].Path -NewName (Join-Path (Split-Path $items[$sel].Path -Parent) $newName) -Force -ErrorAction Stop
+                            $items=Load-Dir $curPath; $sel=[math]::Min($sel,[math]::Max(0,$items.Count-1))
+                        } catch { Show-Error "Fehler: $($_.Exception.Message)"; Clear-Console }
                     }
                 } elseif ($action -eq "delete") {
-                    $confirmed = Show-DeleteConfirm $items[$sel]
-                    Clear-Console
-                    if ($confirmed) {
+                    $ok=Show-DeleteConfirm $items[$sel]; Clear-Console
+                    if ($ok) {
                         try {
-                            if ($items[$sel].IsDir) { Remove-Item $items[$sel].Path -Recurse -Force -ErrorAction Stop }
-                            else                    { Remove-Item $items[$sel].Path -Force -ErrorAction Stop }
-                            $items  = Load-Dir $curPath
-                            $sel    = [math]::Min($sel, [math]::Max(0, $items.Count - 1))
-                            $scroll = [math]::Min($scroll, [math]::Max(0, $items.Count - $listH))
-                        } catch {
-                            Show-Error "Fehler: $($_.Exception.Message)"
-                            Clear-Console
-                        }
+                            if($items[$sel].IsDir){Remove-Item $items[$sel].Path -Recurse -Force -EA Stop}
+                            else{Remove-Item $items[$sel].Path -Force -EA Stop}
+                            $items=Load-Dir $curPath
+                            $sel=[math]::Min($sel,[math]::Max(0,$items.Count-1))
+                            $scroll=[math]::Min($scroll,[math]::Max(0,$items.Count-$listH))
+                        } catch { Show-Error "Fehler: $($_.Exception.Message)"; Clear-Console }
                     }
                 }
             }
-        } elseif ($ks -eq "Q" -or $ks -eq "Escape") {
-            $running = $false
         }
+        elseif ($ks -eq "Q" -or $ks -eq "Escape") { $running=$false }
     }
 } finally {
-    [Console]::CursorVisible  = $true
-    [Console]::BackgroundColor = $origBg
-    [Console]::ForegroundColor = $origFg
+    [Console]::CursorVisible=$true; [Console]::BackgroundColor=$origBg; [Console]::ForegroundColor=$origFg
     Clear-Console
     Write-Footer
 }
