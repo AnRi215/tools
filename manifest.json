@@ -13,13 +13,13 @@
   },
   {
     "name":        "eset",
-    "description": "ESET Konnektivitaetstest aller ESET-Endpunkte (KB332)",
+    "description": "ESET Konnektivitätstest aller ESET-Endpunkte (KB332)",
     "shell":       "PowerShell 5.1+",
     "usage":       "irm \"https://tools.anri.sh/eset\" | iex"
   },
   {
     "name":        "help",
-    "description": "Zeigt alle verfuegbaren Tools und deren Verwendung",
+    "description": "Zeigt alle verfügbaren Tools und deren Verwendung",
     "shell":       "PowerShell 5.1+",
     "usage":       "irm \"https://tools.anri.sh/help\" | iex"
   }
