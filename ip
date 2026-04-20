@@ -1,7 +1,10 @@
 $ErrorActionPreference = "SilentlyContinue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+ 
+$W = [math]::Max(40, [Console]::WindowWidth)
  
 function Write-Sep {
-    Write-Host ("  " + ("-" * 55)) -ForegroundColor DarkGray
+    Write-Host ("  " + ("-" * [math]::Min(55, $W - 4))) -ForegroundColor DarkGray
 }
  
 function Write-Section([string]$Title) {
@@ -11,95 +14,148 @@ function Write-Section([string]$Title) {
 }
  
 function Write-KV([string]$Key, [string]$Val, [string]$Color = "Cyan") {
-    $label = ("    " + $Key + ":").PadRight(28)
-    Write-Host $label -ForegroundColor DarkGray -NoNewline
-    Write-Host $Val   -ForegroundColor $Color
+    Write-Host ("    {0,-22}" -f ($Key + ":")) -ForegroundColor DarkGray -NoNewline
+    Write-Host $Val -ForegroundColor $Color
 }
  
-# ── Header ───────────────────────────────────────────────────────────────────
+# ── Zentrierter Header ───────────────────────────────────────────────────────
+ 
+$title   = "Netzwerkinformationen"
+$titlePad = [math]::Max(0, [int](($W - $title.Length - 4) / 2))
  
 Write-Host ""
-Write-Host "  ip.ps1 " -ForegroundColor White -NoNewline
-Write-Host "~  IP & Netzwerkinfo" -ForegroundColor DarkGray
+Write-Host (" " * $titlePad) -NoNewline
+Write-Host "  $title  " -ForegroundColor Black -BackgroundColor Cyan
 Write-Sep
  
-# ── System ───────────────────────────────────────────────────────────────────
+# ── Interne Adressen (gefiltert + gruppiert) ─────────────────────────────────
  
-Write-Section "System"
+# Alle IPv4-Adressen ohne Loopback, ohne APIPA (169.254.x.x) und ohne 0.0.0.0
+$rawIPs = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+          Where-Object {
+              $_.IPAddress -notmatch "^127\." -and
+              $_.IPAddress -notmatch "^169\.254\." -and
+              $_.IPAddress -ne "0.0.0.0"
+          } |
+          Sort-Object InterfaceIndex
  
-try { $hn = [System.Net.Dns]::GetHostName() } catch { $hn = $env:COMPUTERNAME }
-Write-KV "Hostname" $hn "White"
-Write-KV "User"     "$env:USERDOMAIN\$env:USERNAME" "Gray"
+# Adapter abrufen und klassifizieren
+$groupPhys   = New-Object System.Collections.Generic.List[psobject]
+$groupVMware = New-Object System.Collections.Generic.List[psobject]
+$groupHyperV = New-Object System.Collections.Generic.List[psobject]
+$groupOther  = New-Object System.Collections.Generic.List[psobject]
  
-$os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
-if ($os) { Write-KV "OS" $os.Caption "DarkGray" }
+foreach ($ip in $rawIPs) {
+    $adp = Get-NetAdapter -InterfaceIndex $ip.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $adp) { continue }
  
-# ── Interne Adressen ─────────────────────────────────────────────────────────
+    # Bluetooth grundsätzlich überspringen
+    $desc = if ($adp.InterfaceDescription) { $adp.InterfaceDescription } else { "" }
+    if ($adp.Name -match "Bluetooth" -or $desc -match "Bluetooth") { continue }
  
-Write-Section "Interne Adressen"
+    $entry = [pscustomobject]@{
+        Name   = $adp.Name
+        IP     = "$($ip.IPAddress)/$($ip.PrefixLength)"
+        Status = $adp.Status
+    }
  
-$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-       Where-Object { $_.IPAddress -notmatch "^127\." -and $_.IPAddress -ne "0.0.0.0" } |
-       Sort-Object InterfaceIndex
+    if ($adp.Name -match "VMware|VMnet" -or $desc -match "VMware") {
+        $groupVMware.Add($entry)
+    } elseif ($adp.Name -match "^vEthernet|WSL" -or $desc -match "Hyper-V") {
+        $groupHyperV.Add($entry)
+    } elseif ($adp.InterfaceType -in @(6, 71) -or $adp.Name -match "Ethernet|LAN|WLAN|Wi-Fi|WiFi|VPN|TAP") {
+        $groupPhys.Add($entry)
+    } else {
+        $groupOther.Add($entry)
+    }
+}
  
-if ($ips) {
-    foreach ($ip in $ips) {
-        $adp = Get-NetAdapter -InterfaceIndex $ip.InterfaceIndex -ErrorAction SilentlyContinue
-        $lbl = if ($adp -and $adp.Name) { $adp.Name } else { "Interface $($ip.InterfaceIndex)" }
-        Write-KV $lbl "$($ip.IPAddress)/$($ip.PrefixLength)" "Cyan"
+# Fallback falls Get-NetIPAddress nichts liefert
+if ($groupPhys.Count -eq 0 -and $groupVMware.Count -eq 0 -and $groupHyperV.Count -eq 0 -and $groupOther.Count -eq 0) {
+    try {
+        $hn  = [System.Net.Dns]::GetHostName()
+        $fbs = [System.Net.Dns]::GetHostAddresses($hn) |
+               Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }
+        Write-Section "Interne Adressen"
+        foreach ($fb in $fbs) { Write-KV "Adresse" $fb.ToString() "Cyan" }
+    } catch {
+        Write-Section "Interne Adressen"
+        Write-Host "    (keine Adressen gefunden)" -ForegroundColor DarkGray
     }
 } else {
-    # Fallback ohne Get-NetIPAddress
-    $addrs = [System.Net.Dns]::GetHostAddresses($hn) |
-             Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }
-    foreach ($a in $addrs) { Write-KV "Adresse" $a.ToString() "Cyan" }
+    if ($groupPhys.Count -gt 0) {
+        Write-Section "Physisch / VPN"
+        foreach ($e in $groupPhys) {
+            $statusCol = if ($e.Status -eq "Up") { "Cyan" } else { "DarkGray" }
+            Write-KV $e.Name $e.IP $statusCol
+        }
+    }
+ 
+    if ($groupHyperV.Count -gt 0) {
+        Write-Section "Hyper-V / WSL"
+        foreach ($e in $groupHyperV) { Write-KV $e.Name $e.IP "DarkCyan" }
+    }
+ 
+    if ($groupVMware.Count -gt 0) {
+        Write-Section "VMware"
+        foreach ($e in $groupVMware) { Write-KV $e.Name $e.IP "DarkCyan" }
+    }
+ 
+    if ($groupOther.Count -gt 0) {
+        Write-Section "Sonstiges"
+        foreach ($e in $groupOther) { Write-KV $e.Name $e.IP "DarkGray" }
+    }
 }
+ 
+# ── Routing ──────────────────────────────────────────────────────────────────
+ 
+Write-Section "Routing"
  
 $gw = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
       Sort-Object RouteMetric | Select-Object -First 1
 if ($gw) { Write-KV "Gateway" $gw.NextHop "DarkYellow" }
  
-$dnsAddrs = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.ServerAddresses -and $_.ServerAddresses.Count -gt 0 } |
-            Select-Object -ExpandProperty ServerAddresses -Unique
-if ($dnsAddrs) { Write-KV "DNS-Server" ($dnsAddrs -join ", ") "DarkGray" }
+$dnsServers = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+              Where-Object { $_.ServerAddresses -and $_.ServerAddresses.Count -gt 0 } |
+              Select-Object -ExpandProperty ServerAddresses -Unique
+ 
+if ($dnsServers) {
+    $first = $true
+    foreach ($dns in $dnsServers) {
+        if ($first) { Write-KV "DNS" $dns "DarkGray"; $first = $false }
+        else        { Write-Host ("    {0,-22}" -f " ") -ForegroundColor DarkGray -NoNewline; Write-Host $dns -ForegroundColor DarkGray }
+    }
+}
  
 # ── Externe Adresse ──────────────────────────────────────────────────────────
  
-Write-Section "Externe Adresse"
+Write-Section "Extern"
  
 $got = $false
  
-# Versuch 1: ipinfo.io (IP + Standort)
 try {
     $r = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 8 -ErrorAction Stop
     if ($r -and $r.ip) {
-        Write-KV "IP"       $r.ip                                      "Green"
-        if ($r.org)      { Write-KV "ISP / AS"  $r.org                "Gray" }
-        if ($r.city)     { Write-KV "Standort"  "$($r.city), $($r.region), $($r.country)" "Gray" }
-        if ($r.timezone) { Write-KV "Zeitzone"  $r.timezone           "DarkGray" }
+        Write-KV "IP"       $r.ip  "Green"
+        if ($r.org)      { Write-KV "ISP / AS"  $r.org                                         "Gray" }
+        if ($r.city)     { Write-KV "Standort"  "$($r.city), $($r.region), $($r.country)"      "Gray" }
+        if ($r.timezone) { Write-KV "Zeitzone"  $r.timezone                                    "DarkGray" }
         $got = $true
     }
 } catch {}
  
-# Versuch 2: ipify.org (nur IP)
 if (-not $got) {
     try {
         $r2 = Invoke-WebRequest -Uri "https://api.ipify.org" -TimeoutSec 6 -UseBasicParsing -ErrorAction Stop
-        if ($r2 -and $r2.Content) {
-            Write-KV "IP" $r2.Content.Trim() "Green"
-            $got = $true
-        }
+        if ($r2 -and $r2.Content) { Write-KV "IP" $r2.Content.Trim() "Green"; $got = $true }
     } catch {}
 }
  
-if (-not $got) {
-    Write-KV "IP" "(kein Internetzugriff)" "DarkRed"
-}
+if (-not $got) { Write-KV "IP" "(kein Internetzugriff)" "DarkRed" }
  
 # ── Footer ───────────────────────────────────────────────────────────────────
  
 Write-Host ""
 Write-Sep
-Write-Host ("    Stand: " + (Get-Date -Format "dd.MM.yyyy HH:mm:ss")) -ForegroundColor DarkGray
+Write-Host ("    " + (Get-Date -Format "dd.MM.yyyy  HH:mm:ss")) -ForegroundColor DarkGray
 Write-Host ""
