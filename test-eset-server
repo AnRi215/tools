@@ -1,0 +1,130 @@
+# ============================================================
+#  ESET Connectivity Check
+#  Basierend auf KB332 - support.eset.com/en/kb332
+# ============================================================
+ 
+$results = @()
+ 
+$tests = @(
+    # --- Aktivierung & Lizenz ---
+    @{c="Activation/License"; h="edf.eset.com";              p=443},
+    @{c="Activation/License"; h="iploc.eset.com";            p=443},
+    @{c="Activation/License"; h="expire.eset.com";           p=443},
+    @{c="Activation/License"; h="ecp.eset.systems";          p=443},
+    @{c="Activation/License"; h="pki.eset.com";              p=80},
+    @{c="Activation/License"; h="versioncheck.eset.com";     p=443},
+ 
+    # --- Modul-Updates ---
+    @{c="Module Updates";     h="update.eset.com";           p=80},
+    @{c="Module Updates";     h="pico.eset.com";             p=80},
+    @{c="Module Updates";     h="um01.eset.com";             p=80},
+    @{c="Module Updates";     h="um05.eset.com";             p=80},
+    @{c="Module Updates";     h="um09.eset.com";             p=80},
+    @{c="Module Updates";     h="um11.eset.com";             p=80},
+ 
+    # --- Downloads ---
+    @{c="Downloads";          h="download.eset.com";         p=80},
+    @{c="Downloads";          h="repository.eset.com";       p=80},
+ 
+    # --- LiveGrid ---
+    @{c="LiveGrid";           h="h1-c01.eset.com";           p=80},
+    @{c="LiveGrid";           h="h1-c01.eset.com";           p=53535},
+    @{c="LiveGrid";           h="h3-c01.eset.com";           p=80},
+    @{c="LiveGrid";           h="h3-c01.eset.com";           p=53535},
+    @{c="LiveGrid";           h="h5-c01.eset.com";           p=80},
+    @{c="LiveGrid";           h="h5-c01.eset.com";           p=53535},
+    @{c="LiveGrid";           h="livegrid.eset.systems";     p=443},
+ 
+    # --- Advanced Machine Learning ---
+    @{c="Adv. ML";            h="h1-aidc01.eset.com";        p=80},
+    @{c="Adv. ML";            h="h3-aidc01.eset.com";        p=80},
+    @{c="Adv. ML";            h="h5-aidc01.eset.com";        p=80},
+ 
+    # --- Antispam ---
+    @{c="Antispam";           h="h1-ars01-v.eset.com";       p=53535},
+    @{c="Antispam";           h="h3-ars01-v.eset.com";       p=53535},
+    @{c="Antispam";           h="h5-ars01-v.eset.com";       p=53535},
+ 
+    # --- Web/Parental Control ---
+    @{c="Web Control";        h="h1-arsp01-v.eset.com";      p=53535},
+    @{c="Web Control";        h="h3-arsp01-v.eset.com";      p=53535},
+    @{c="Web Control";        h="h5-arsp01-v.eset.com";      p=53535},
+ 
+    # --- LiveGuard Advanced ---
+    @{c="LiveGuard";          h="r.edtd.eset.com";           p=443},
+    @{c="LiveGuard";          h="d.edtd.eset.com";           p=443},
+ 
+    # --- ESET PROTECT / Cloud ---
+    @{c="ESET PROTECT";       h="protect.eset.com";          p=443},
+    @{c="ESET PROTECT";       h="identity.eset.com";         p=443},
+    @{c="ESET PROTECT";       h="protecthub.eset.com";       p=443},
+    @{c="ESET PROTECT";       h="eu02.protect.eset.com";     p=443},
+ 
+    # --- EPNS (Wake-Up Calls) ---
+    @{c="EPNS";               h="epns.eset.com";             p=443},
+    @{c="EPNS";               h="epns.eset.com";             p=8883},
+ 
+    # --- Support & Services ---
+    @{c="Support/Services";   h="suppreq.eset.eu";           p=443},
+    @{c="Support/Services";   h="go.eset.com";               p=443},
+    @{c="Support/Services";   h="gallup.eset.com";           p=443},
+    @{c="Support/Services";   h="support.eset.com";          p=443}
+)
+ 
+Write-Host "`nESET Connectivity Check - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Cyan
+Write-Host ("=" * 75) -ForegroundColor Cyan
+ 
+$total   = $tests.Count
+$current = 0
+ 
+foreach ($entry in $tests) {
+    $current++
+    Write-Progress -Activity "Teste ESET-Konnektivitaet..." `
+                   -Status "$($entry.h):$($entry.p)" `
+                   -PercentComplete (($current / $total) * 100)
+ 
+    $r = Test-NetConnection -ComputerName $entry.h -Port $entry.p -WarningAction SilentlyContinue
+ 
+    $results += [PSCustomObject]@{
+        Category         = $entry.c
+        Host             = $entry.h
+        Port             = $entry.p
+        IP               = $r.RemoteAddress
+        TcpTestSucceeded = $r.TcpTestSucceeded
+    }
+}
+ 
+Write-Progress -Completed -Activity "Fertig"
+ 
+# --- Ergebnisse gruppiert nach Kategorie ausgeben ---
+$categories = $results | Select-Object -ExpandProperty Category -Unique
+ 
+foreach ($cat in $categories) {
+    Write-Host "`n[ $cat ]" -ForegroundColor Yellow
+    $catResults = $results | Where-Object { $_.Category -eq $cat }
+    foreach ($row in $catResults) {
+        $status = if ($row.TcpTestSucceeded) { "OK  " } else { "FAIL" }
+        $color  = if ($row.TcpTestSucceeded) { "Green" } else { "Red" }
+        Write-Host ("  [{0}]  {1,-35} Port {2,-6}  IP: {3}" -f $status, $row.Host, $row.Port, $row.IP) -ForegroundColor $color
+    }
+}
+ 
+# --- Zusammenfassung ---
+$passed = ($results | Where-Object TcpTestSucceeded).Count
+$failed = ($results | Where-Object { -not $_.TcpTestSucceeded }).Count
+ 
+Write-Host "`n$('=' * 75)" -ForegroundColor Cyan
+Write-Host ("Ergebnis: {0} von {1} Tests erfolgreich  |  {2} fehlgeschlagen" -f $passed, $total, $failed) `
+    -ForegroundColor $(if ($failed -eq 0) { "Green" } else { "Yellow" })
+ 
+if ($failed -gt 0) {
+    Write-Host "`nFehlgeschlagene Verbindungen:" -ForegroundColor Red
+    $results | Where-Object { -not $_.TcpTestSucceeded } |
+        Format-Table Category, Host, Port -AutoSize
+}
+ 
+# Optional: Export als CSV
+# $results | Export-Csv -Path "$env:TEMP\ESET_Connectivity_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv" -NoTypeInformation -Encoding UTF8
+ 
+Write-Host "`nDruecke eine beliebige Taste zum Beenden..." -ForegroundColor DarkGray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
