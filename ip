@@ -1,0 +1,91 @@
+Set-StrictMode -Off
+$ErrorActionPreference = "SilentlyContinue"
+
+# ─── Layout helpers ──────────────────────────────────────────────────────────
+
+function Write-Separator {
+    $W = [math]::Min([Console]::WindowWidth - 1, 60)
+    Write-Host ("  " + ("─" * $W)) -ForegroundColor DarkGray
+}
+
+function Write-Section([string]$Title) {
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " $Title " -ForegroundColor Black -BackgroundColor DarkCyan
+}
+
+function Write-KV([string]$Key, [string]$Value, [string]$VC = "Cyan") {
+    Write-Host ("    {0,-22}" -f ($Key + ":")) -ForegroundColor DarkGray -NoNewline
+    Write-Host $Value -ForegroundColor $VC
+}
+
+# ─── Header ──────────────────────────────────────────────────────────────────
+
+Write-Host ""
+Write-Host "  myip.ps1" -ForegroundColor White -NoNewline
+Write-Host "  ~  IP & Network Info" -ForegroundColor DarkGray
+Write-Separator
+
+# ─── System ──────────────────────────────────────────────────────────────────
+
+Write-Section "System"
+Write-KV "Hostname"  $env:COMPUTERNAME                        "White"
+Write-KV "User"      "$env:USERDOMAIN\$env:USERNAME"          "Gray"
+Write-KV "OS"        (Get-CimInstance Win32_OperatingSystem -EA SilentlyContinue).Caption "Gray"
+
+# ─── Internal IPs ────────────────────────────────────────────────────────────
+
+Write-Section "Interne Adressen"
+
+$adapters = Get-NetIPAddress -AddressFamily IPv4 -EA SilentlyContinue |
+    Where-Object { $_.IPAddress -notmatch "^127\." -and $_.IPAddress -ne "0.0.0.0" } |
+    Sort-Object InterfaceIndex
+
+foreach ($a in $adapters) {
+    $adp = Get-NetAdapter -InterfaceIndex $a.InterfaceIndex -EA SilentlyContinue
+    $label = if ($adp) { $adp.Name } else { "Interface $($a.InterfaceIndex)" }
+    Write-KV $label "$($a.IPAddress)/$($a.PrefixLength)" "Cyan"
+}
+
+# Gateway
+$gw = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -EA SilentlyContinue |
+       Sort-Object RouteMetric | Select-Object -First 1).NextHop
+if ($gw) { Write-KV "Gateway" $gw "DarkYellow" }
+
+# DNS
+$dnsRaw = Get-DnsClientServerAddress -AddressFamily IPv4 -EA SilentlyContinue |
+          Where-Object { $_.ServerAddresses.Count -gt 0 } |
+          Select-Object -ExpandProperty ServerAddresses -Unique
+if ($dnsRaw) { Write-KV "DNS" ($dnsRaw -join ", ") "DarkGray" }
+
+# ─── External IP (ipinfo.io with fallback) ───────────────────────────────────
+
+Write-Section "Externe Adresse"
+
+$extOk = $false
+try {
+    $info = Invoke-RestMethod "https://ipinfo.io/json" -TimeoutSec 6
+    if ($info.ip) {
+        Write-KV "IP"        $info.ip                                       "Green"
+        if ($info.org)      { Write-KV "ISP / AS"  $info.org               "Gray" }
+        if ($info.city)     { Write-KV "Standort"  "$($info.city), $($info.region), $($info.country)" "Gray" }
+        if ($info.timezone) { Write-KV "Zeitzone"  $info.timezone           "DarkGray" }
+        $extOk = $true
+    }
+} catch {}
+
+if (-not $extOk) {
+    try {
+        $ip = (Invoke-RestMethod "https://api.ipify.org?format=text" -TimeoutSec 5).Trim()
+        Write-KV "IP" $ip "Green"
+    } catch {
+        Write-KV "IP" "(nicht erreichbar)" "DarkRed"
+    }
+}
+
+# ─── Footer ──────────────────────────────────────────────────────────────────
+
+Write-Host ""
+Write-Separator
+Write-Host ("    Stand: " + (Get-Date -Format "dd.MM.yyyy HH:mm:ss")) -ForegroundColor DarkGray
+Write-Host ""
