@@ -123,8 +123,5 @@ if ($failed -gt 0) {
         Format-Table Category, Host, Port -AutoSize
 }
 
-# Optional: Export als CSV
-# $results | Export-Csv -Path "$env:TEMP\ESET_Connectivity_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv" -NoTypeInformation -Encoding UTF8
-
 Write-Host "`nDruecke eine beliebige Taste zum Beenden..." -ForegroundColor DarkGray
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
