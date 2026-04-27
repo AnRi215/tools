@@ -4,7 +4,8 @@
 #  Shell: PowerShell 5.1+
 # ============================================================
 
-$results = @()
+$results     = @()
+$TIMEOUT_MS  = 5000
 
 $tests = @(
     # --- Aktivierung & Lizenz ---
@@ -72,6 +73,45 @@ $tests = @(
     @{c="Support/Services";   h="support.eset.com";          p=443}
 )
 
+function Test-TcpConnection {
+    param(
+        [string]$Hostname,
+        [int]$Port,
+        [int]$TimeoutMs
+    )
+
+    $resolvedIP = $null
+    $success    = $false
+
+    try {
+        # DNS-Auflösung vorab, um die IP für die Ausgabe zu ermitteln
+        $dnsResult  = [System.Net.Dns]::GetHostAddresses($Hostname)
+        $resolvedIP = $dnsResult[0].IPAddressToString
+    } catch {
+        $resolvedIP = "n/a (DNS-Fehler)"
+        return [PSCustomObject]@{ Success = $false; IP = $resolvedIP }
+    }
+
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $asyncResult = $client.BeginConnect($Hostname, $Port, $null, $null)
+        $waited      = $asyncResult.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+
+        if ($waited -and $client.Connected) {
+            $success = $true
+            $client.EndConnect($asyncResult)
+        }
+        # Falls $waited = $false → Timeout abgelaufen → $success bleibt $false
+    } catch {
+        # Verbindung aktiv abgelehnt → ebenfalls FAIL
+        $success = $false
+    } finally {
+        $client.Close()
+    }
+
+    return [PSCustomObject]@{ Success = $success; IP = $resolvedIP }
+}
+
 Write-Host "`nESET Connectivity Check - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Cyan
 Write-Host ("=" * 75) -ForegroundColor Cyan
 
@@ -80,14 +120,18 @@ $current = 0
 
 foreach ($entry in $tests) {
     $current++
-    Write-Progress -Activity "Teste ESET-Konnektivität..." -Status "$($entry.h):$($entry.p)" -PercentComplete (($current / $total) * 100)
-    $r = Test-NetConnection -ComputerName $entry.h -Port $entry.p -WarningAction SilentlyContinue
+    Write-Progress -Activity "Teste ESET-Konnektivität..." `
+                   -Status "$($entry.h):$($entry.p)" `
+                   -PercentComplete (($current / $total) * 100)
+
+    $result = Test-TcpConnection -Hostname $entry.h -Port $entry.p -TimeoutMs $TIMEOUT_MS
+
     $results += [PSCustomObject]@{
         Category         = $entry.c
         Host             = $entry.h
         Port             = $entry.p
-        IP               = $r.RemoteAddress
-        TcpTestSucceeded = $r.TcpTestSucceeded
+        IP               = $result.IP
+        TcpTestSucceeded = $result.Success
     }
 }
 
@@ -105,7 +149,7 @@ foreach ($cat in $categories) {
     }
 }
 
-$passed = ($results | Where-Object { $_.TcpTestSucceeded }).Count
+$passed = ($results | Where-Object {  $_.TcpTestSucceeded }).Count
 $failed = ($results | Where-Object { -not $_.TcpTestSucceeded }).Count
 
 Write-Host "`n$('=' * 75)" -ForegroundColor Cyan
