@@ -23,4 +23,11 @@
     "shell":       "PowerShell 5.1+",
     "usage":       "irm \"https://tools.anri.sh/help\" | iex"
   }
+  ,
+  {
+    "name":        "uninstall-eset",
+    "description": "Deinstalliert ESET-Komponenten lokal",
+    "shell":       "PowerShell 5.1+",
+    "usage":       "irm \"https://tools.anri.sh/uninstall-eset\" | iex"
+  }
 ]
