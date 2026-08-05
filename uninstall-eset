@@ -124,49 +124,67 @@ if (-not ($NetworkOk -and $DownloadOk -and $SafeModeOk)) {
 $DesktopPath  = [Environment]::GetFolderPath('Desktop')
 $ShortcutPath = Join-Path $DesktopPath "Abgesicherten Modus beenden.lnk"
 
+$HelperDir  = "$env:ProgramData\anri-it"
+$HelperPath = Join-Path $HelperDir "revert-safeboot.ps1"
+
+New-Item -Path $HelperDir -ItemType Directory -Force | Out-Null
+
 $RevertScript = @'
-$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "Stop"
 
-bcdedit /deletevalue '{current}' safeboot | Out-Null
+try {
+    bcdedit /deletevalue '{current}' safeboot | Out-Null
 
-Write-Host ""
-Write-Host "Abgesicherter Start wurde deaktiviert." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Abgesicherter Start wurde deaktiviert." -ForegroundColor Cyan
 
-while ([Console]::KeyAvailable) { [Console]::ReadKey($true) | Out-Null }
+    while ([Console]::KeyAvailable) { [Console]::ReadKey($true) | Out-Null }
 
-$Cancelled = $false
-Write-Host "Neustart in 10 Sekunden. Beliebige Taste zum Abbrechen drücken." -ForegroundColor Yellow
-for ($i = 10; $i -gt 0; $i--) {
-    Write-Host "`rNeustart in $i Sekunden...   " -NoNewline -ForegroundColor Yellow
-    $Elapsed = 0
-    while ($Elapsed -lt 1000) {
-        if ([Console]::KeyAvailable) {
-            [Console]::ReadKey($true) | Out-Null
-            $Cancelled = $true
-            break
+    $Cancelled = $false
+    Write-Host "Neustart in 10 Sekunden. Beliebige Taste zum Abbrechen drücken." -ForegroundColor Yellow
+    for ($i = 10; $i -gt 0; $i--) {
+        Write-Host "`rNeustart in $i Sekunden...   " -NoNewline -ForegroundColor Yellow
+        $Elapsed = 0
+        while ($Elapsed -lt 1000) {
+            if ([Console]::KeyAvailable) {
+                [Console]::ReadKey($true) | Out-Null
+                $Cancelled = $true
+                break
+            }
+            Start-Sleep -Milliseconds 100
+            $Elapsed += 100
         }
-        Start-Sleep -Milliseconds 100
-        $Elapsed += 100
+        if ($Cancelled) { break }
     }
-    if ($Cancelled) { break }
-}
-Write-Host ""
+    Write-Host ""
 
-if ($Cancelled) {
-    Write-Host "Abgebrochen." -ForegroundColor Red
-} else {
-    Remove-Item -Path "__SHORTCUT_PATH__" -Force -ErrorAction SilentlyContinue
-    Restart-Computer -Force
+    if ($Cancelled) {
+        Write-Host "Abgebrochen." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Taste drücken zum Schließen..." -ForegroundColor DarkGray
+        [Console]::ReadKey($true) | Out-Null
+    } else {
+        Remove-Item -Path "__SHORTCUT_PATH__" -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue
+        Restart-Computer -Force
+    }
+}
+catch {
+    Write-Host ""
+    Write-Host "Fehler: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Taste drücken zum Schließen..." -ForegroundColor DarkGray
+    [Console]::ReadKey($true) | Out-Null
 }
 '@
 
 $RevertScript = $RevertScript.Replace("__SHORTCUT_PATH__", $ShortcutPath)
-$EncodedRevertCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($RevertScript))
+Set-Content -Path $HelperPath -Value $RevertScript -Encoding UTF8
 
 $WScriptShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "powershell.exe"
-$Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Normal -EncodedCommand $EncodedRevertCommand"
+$Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Normal -File `"$HelperPath`""
 $Shortcut.WorkingDirectory = $DesktopPath
 $Shortcut.Description = "Deaktiviert den abgesicherten Start und startet neu"
 $Shortcut.Save()
