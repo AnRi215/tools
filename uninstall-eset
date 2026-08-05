@@ -100,20 +100,60 @@ Write-Host "Abgesicherter Start mit Netzwerktreibern wird aktiviert..." -Foregro
 
 bcdedit /set '{current}' safeboot network | Out-Null
 
+# ─── Dienste für abgesicherten Start freigeben (SafeBoot-Allowlist) ────────
+
+Write-Host "Dienste werden für den abgesicherten Start freigegeben..." -ForegroundColor Cyan
+
+$SafeModeAllowlist = @("datto RMM")
+$ResolvedSafeModeServices = @()
+
+foreach ($DisplayName in $SafeModeAllowlist) {
+    $Service = Get-Service | Where-Object { $_.DisplayName -like "*$DisplayName*" } | Select-Object -First 1
+
+    if ($Service) {
+        $SafeModeKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\$($Service.Name)"
+        New-Item -Path $SafeModeKeyPath -Value "Service" -Force | Out-Null
+        $ResolvedSafeModeServices += $Service
+        Write-Host "  '$($Service.DisplayName)' ($($Service.Name)) freigegeben." -ForegroundColor Cyan
+    } else {
+        Write-Host "  Dienst '$DisplayName' wurde nicht gefunden." -ForegroundColor Red
+    }
+}
+
+# uvnc_service: eigener VNC-Dienst von Datto RMM für Web Remote / Bildschirmzugriff.
+# Windows-RDP wird von Datto RMM nicht verwendet. Nur vorhanden, wenn VNC/Remote-Takeover
+# für das Gerät freigegeben ist – daher optional und blockiert die Checkliste nicht.
+$VncService = Get-Service -Name "uvnc_service" -ErrorAction SilentlyContinue
+if ($VncService) {
+    $VncKeyPath = "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\$($VncService.Name)"
+    New-Item -Path $VncKeyPath -Value "Service" -Force | Out-Null
+    Write-Host "  '$($VncService.DisplayName)' ($($VncService.Name)) freigegeben (Web Remote)." -ForegroundColor Cyan
+} else {
+    Write-Host "  uvnc_service (Web Remote) ist auf diesem Gerät nicht installiert - übersprungen." -ForegroundColor DarkGray
+}
+
 # ─── Validierung ────────────────────────────────────────────────────────────
 
 $NetworkOk  = (Test-Path $NetworkSettingsPath) -and ((Get-Item $NetworkSettingsPath).Length -gt 0)
 $DownloadOk = Test-Path $UninstallerPath
 $SafeModeOk = ((bcdedit /enum '{current}') -join "`n") -match "safeboot"
 
+$SafeModeAllowlistOk = ($ResolvedSafeModeServices.Count -eq $SafeModeAllowlist.Count)
+foreach ($Service in $ResolvedSafeModeServices) {
+    if (-not (Test-Path "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\$($Service.Name)")) {
+        $SafeModeAllowlistOk = $false
+    }
+}
+
 Write-Host ""
 Write-Host "Validierung:" -ForegroundColor Cyan
 Write-Host "  [$(if ($NetworkOk)  {'x'} else {' '})] Netzwerkkonfiguration gesichert ($NetworkSettingsPath)" -ForegroundColor $(if ($NetworkOk)  {'Green'} else {'Red'})
 Write-Host "  [$(if ($DownloadOk) {'x'} else {' '})] ESET-Uninstaller heruntergeladen ($UninstallerPath)"    -ForegroundColor $(if ($DownloadOk) {'Green'} else {'Red'})
 Write-Host "  [$(if ($SafeModeOk) {'x'} else {' '})] Abgesicherter Start (Netzwerk) aktiviert"                -ForegroundColor $(if ($SafeModeOk) {'Green'} else {'Red'})
+Write-Host "  [$(if ($SafeModeAllowlistOk) {'x'} else {' '})] Dienst(e) für abgesicherten Start freigegeben ($($SafeModeAllowlist -join ', '))" -ForegroundColor $(if ($SafeModeAllowlistOk) {'Green'} else {'Red'})
 Write-Host ""
 
-if (-not ($NetworkOk -and $DownloadOk -and $SafeModeOk)) {
+if (-not ($NetworkOk -and $DownloadOk -and $SafeModeOk -and $SafeModeAllowlistOk)) {
     Write-Host "Mindestens ein Schritt ist fehlgeschlagen. Neustart wird nicht ausgeführt." -ForegroundColor Red
     Write-Host ""
     return
